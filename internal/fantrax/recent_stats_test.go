@@ -79,3 +79,42 @@ func TestAggregateRecentStats_NilStats(t *testing.T) {
 		t.Errorf("GamesPlayed: got %v, want 0", stat.GamesPlayed)
 	}
 }
+
+func TestAggregateRecentStats_NilPlayerStats(t *testing.T) {
+	period := []models.RosterPlayer{
+		{PlayerID: "a", Name: "No Stats", Stats: nil},
+	}
+	result := aggregateRecentStats([][]models.RosterPlayer{period})
+	if _, ok := result["a"]; ok {
+		t.Error("expected player with nil Stats to be skipped")
+	}
+}
+
+func TestAggregateRecentStats_NilBatting(t *testing.T) {
+	period := []models.RosterPlayer{
+		{PlayerID: "b", Name: "No Batting", Stats: &models.PlayerStats{Batting: nil}},
+	}
+	result := aggregateRecentStats([][]models.RosterPlayer{period})
+	if _, ok := result["b"]; ok {
+		t.Error("expected player with nil Batting to be skipped")
+	}
+}
+
+func TestAggregateRecentStats_NilGamesPlayed(t *testing.T) {
+	period := []models.RosterPlayer{
+		{
+			PlayerID: "c",
+			Name:     "Nil GP",
+			Stats: &models.PlayerStats{
+				Batting: &models.BattingStats{
+					FantasyPointsPerGame: ptr(5.0),
+					GamesPlayed:          nil,
+				},
+			},
+		},
+	}
+	result := aggregateRecentStats([][]models.RosterPlayer{period})
+	if _, ok := result["c"]; ok {
+		t.Error("expected player with nil GamesPlayed to be skipped")
+	}
+}
