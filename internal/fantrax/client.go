@@ -3,6 +3,7 @@ package fantrax
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	gofantrax "github.com/pmurley/go-fantrax"
@@ -172,6 +173,10 @@ func (c *Client) ApplyLineup(active []PlayerSlot, reserve []string) error {
 		return fmt.Errorf("apply roster changes: %w", err)
 	}
 	if !result.Success {
+		if strings.Contains(result.ErrorMessage, "no changes detected") ||
+			strings.Contains(strings.ToLower(result.ErrorMessage), "same lineup") {
+			return nil // already optimal
+		}
 		return fmt.Errorf("roster change rejected: %s", result.ErrorMessage)
 	}
 	return nil

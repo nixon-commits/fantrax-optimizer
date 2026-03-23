@@ -15,4 +15,5 @@ require (
 	github.com/pmurley/go-fantrax v0.1.10 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/text v0.35.0 // indirect
 )

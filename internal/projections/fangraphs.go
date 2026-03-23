@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 )
 
 var fangraphsBattingURL = "https://www.fangraphs.com/api/projections?type=steamer&stats=bat&pos=all&team=0&players=0&lg=all"
@@ -115,11 +118,21 @@ func (s *FanGraphsSource) GetProjection(name, mlbTeam string) (*Projection, bool
 		return p, true
 	}
 	// Name-only fallback (handles mid-season trades).
+	// Only used when exactly one player has this name to avoid collisions.
 	norm := normalizeName(name)
+	var match *Projection
+	var count int
 	for k, v := range s.projections {
 		if strings.HasPrefix(k, norm+"|") {
-			return v, true
+			match = v
+			count++
+			if count > 1 {
+				return nil, false
+			}
 		}
+	}
+	if count == 1 {
+		return match, true
 	}
 	return nil, false
 }
@@ -129,5 +142,13 @@ func projKey(name, team string) string {
 }
 
 func normalizeName(name string) string {
-	return strings.ToLower(strings.TrimSpace(name))
+	// Strip diacritics (é→e, í→i, ñ→n) so accented FanGraphs names
+	// match plain-ASCII Fantrax names.
+	var b strings.Builder
+	for _, r := range norm.NFD.String(strings.TrimSpace(name)) {
+		if !unicode.Is(unicode.Mn, r) {
+			b.WriteRune(r)
+		}
+	}
+	return strings.ToLower(b.String())
 }

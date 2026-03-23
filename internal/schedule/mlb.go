@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var mlbScheduleURL = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&date=%s"
+var mlbScheduleURL = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&hydrate=team&date=%s"
 
 // Client fetches the MLB game schedule.
 type Client struct {
