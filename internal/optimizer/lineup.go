@@ -53,7 +53,7 @@ func OptimizeLineup(
 
 	// Use backtracking to find the assignment that maximizes total points.
 	// Pass current assignments so tied scores prefer fewer changes (stability).
-	toActivate := optimalAssignment(scored, slots, currentAssign)
+	toActivate := optimalAssignment(scored, slots, currentAssign, fantrax.EligibleForSlot)
 
 	// Build set of players in the optimal lineup.
 	assigned := make(map[string]bool)
@@ -97,7 +97,7 @@ func effectivePts(sp ScoredPlayer) float64 {
 // that maximizes total effective points across all slots.
 // When two assignments have the same score, it prefers the one with
 // fewer changes from currentAssign (playerID → posID) for stability.
-func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot, currentAssign map[string]string) []fantrax.PlayerSlot {
+func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot, currentAssign map[string]string, eligFunc func([]string, fantrax.Slot) bool) []fantrax.PlayerSlot {
 	bestTotal := math.Inf(-1)
 	bestChanges := math.MaxInt
 	var bestAssign []fantrax.PlayerSlot
@@ -159,7 +159,7 @@ func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot, currentAssig
 			if used[i] {
 				continue
 			}
-			if !fantrax.EligibleForSlot(sp.Player.Positions, slot) {
+			if !eligFunc(sp.Player.Positions, slot) {
 				continue
 			}
 			used[i] = true

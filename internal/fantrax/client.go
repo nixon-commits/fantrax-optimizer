@@ -46,6 +46,13 @@ var posNameToID = map[string]string{
 	"UT":  auth_client.PosUtil, // "014"
 }
 
+// pitcherPosNameToID maps league pitcher slot names to auth_client position ID strings.
+var pitcherPosNameToID = map[string]string{
+	"SP": auth_client.PosSP, // "015"
+	"RP": auth_client.PosRP, // "016"
+	"P":  auth_client.PosP,  // "017"
+}
+
 // pitcherPosIDs are the Fantrax position IDs that indicate a pitcher slot.
 var pitcherPosIDs = map[string]bool{
 	auth_client.PosSP:  true, // "015"
@@ -351,6 +358,40 @@ func EligibleForSlot(playerPositions []string, slot Slot) bool {
 		if pos == slot.PosID {
 			return true
 		}
+	}
+	return false
+}
+
+// EligibleForPitcherSlot returns true if a pitcher is eligible for the given pitcher slot.
+// P ("017") accepts any pitcher (SP or RP eligible).
+// SP ("015") only accepts SP-eligible pitchers.
+// RP ("016", "043", "044") only accepts RP-eligible pitchers.
+func EligibleForPitcherSlot(playerPositions []string, slot Slot) bool {
+	if slot.PosID == auth_client.PosP { // "017" - P accepts any pitcher
+		for _, pos := range playerPositions {
+			if pitcherPosIDs[pos] {
+				return true
+			}
+		}
+		return false
+	}
+	// RP slots ("016", "043", "044") accept RP-eligible pitchers.
+	if slot.PosID == auth_client.PosRP || slot.PosID == auth_client.PosRP2 || slot.PosID == auth_client.PosRP3 {
+		for _, pos := range playerPositions {
+			if pos == auth_client.PosRP {
+				return true
+			}
+		}
+		return false
+	}
+	// SP slot ("015") accepts SP-eligible pitchers.
+	if slot.PosID == auth_client.PosSP {
+		for _, pos := range playerPositions {
+			if pos == auth_client.PosSP {
+				return true
+			}
+		}
+		return false
 	}
 	return false
 }

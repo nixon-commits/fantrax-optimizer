@@ -54,7 +54,6 @@ func main() {
 		if err != nil {
 			log.Fatalf("get season date range: %v", err)
 		}
-		// Start from today (past dates are irrelevant for lineup setting).
 		if start.Before(today) {
 			start = today
 		}
@@ -85,56 +84,110 @@ func main() {
 		}
 	}
 
-	// --- Fetch roster, slots, scoring (shared across dates) ---
+	// --- Fetch hitter roster, slots, scoring (shared across dates) ---
 	hitterRoster, err := ft.GetHitterRoster()
 	if err != nil {
-		log.Fatalf("get roster: %v", err)
+		log.Fatalf("get hitter roster: %v", err)
 	}
-	log.Printf("roster: %d hitters (%d active)", countActive(hitterRoster), len(hitterRoster))
+	log.Printf("hitter roster: %d hitters (%d active)", len(hitterRoster), countActive(hitterRoster))
 
-	slots, err := ft.GetActiveSlots()
+	hitterSlots, err := ft.GetActiveSlots()
 	if err != nil {
-		log.Fatalf("get slots: %v", err)
+		log.Fatalf("get hitter slots: %v", err)
 	}
-	log.Printf("active slots: %d", len(slots))
+	log.Printf("hitter active slots: %d", len(hitterSlots))
 
-	scoring, err := ft.GetScoringWeights()
+	hitterScoring, err := ft.GetScoringWeights()
 	if err != nil {
-		log.Fatalf("get scoring: %v", err)
+		log.Fatalf("get hitter scoring: %v", err)
 	}
-	log.Printf("scoring weights: %d categories", len(scoring))
+	log.Printf("hitter scoring weights: %d categories", len(hitterScoring))
 
-	// --- Projections (shared across dates) ---
-	var projSrc projections.Source
+	// --- Fetch pitcher roster, slots, scoring (shared across dates) ---
+	pitcherRoster, err := ft.GetPitcherRoster()
+	if err != nil {
+		log.Fatalf("get pitcher roster: %v", err)
+	}
+	log.Printf("pitcher roster: %d pitchers (%d active)", len(pitcherRoster), countActive(pitcherRoster))
+
+	pitcherSlots, err := ft.GetPitcherSlots()
+	if err != nil {
+		log.Fatalf("get pitcher slots: %v", err)
+	}
+	log.Printf("pitcher active slots: %d", len(pitcherSlots))
+
+	pitcherScoring, err := ft.GetPitcherScoringWeights()
+	if err != nil {
+		log.Fatalf("get pitcher scoring: %v", err)
+	}
+	log.Printf("pitcher scoring weights: %d categories", len(pitcherScoring))
+
+	// --- Hitter projections (shared across dates) ---
+	var hitterProjSrc projections.Source
 	fgSrc, err := projections.NewFanGraphsSource()
 	if err != nil {
-		log.Printf("WARNING: fangraphs unavailable (%v) — using rolling stats only", err)
-		projSrc = projections.NewRollingSource()
+		log.Printf("WARNING: fangraphs batting unavailable (%v) — using rolling stats only", err)
+		hitterProjSrc = projections.NewRollingSource()
 	} else {
-		log.Printf("fangraphs projections loaded")
+		log.Printf("fangraphs batting projections loaded")
 		rolling := projections.NewRollingSource()
 		baseSrc := projections.NewChainedSource(fgSrc, rolling)
 
 		currentPeriod, err := ft.GetCurrentPeriod()
 		if err != nil {
 			log.Printf("WARNING: could not get current period (%v) — using Steamer only", err)
-			projSrc = baseSrc
+			hitterProjSrc = baseSrc
 		} else if currentPeriod <= 1 {
 			log.Printf("season not started (period %d) — using Steamer only", currentPeriod)
-			projSrc = baseSrc
+			hitterProjSrc = baseSrc
 		} else {
 			log.Printf("current period: %d, fetching last 10 periods...", currentPeriod)
 			recentStats, err := ft.GetRecentStats(currentPeriod, 10)
 			if err != nil {
-				log.Printf("WARNING: recent stats unavailable (%v) — using Steamer only", err)
-				projSrc = baseSrc
+				log.Printf("WARNING: recent hitter stats unavailable (%v) — using Steamer only", err)
+				hitterProjSrc = baseSrc
 			} else {
-				log.Printf("recent stats loaded: %d players with data", len(recentStats))
+				log.Printf("recent hitter stats loaded: %d players with data", len(recentStats))
 				nameToID := make(map[string]string)
 				for _, p := range hitterRoster {
 					nameToID[projections.NormalizeName(p.Name)] = p.ID
 				}
-				projSrc = projections.NewBlendedSource(baseSrc, recentStats, scoring, nameToID)
+				hitterProjSrc = projections.NewBlendedSource(baseSrc, recentStats, hitterScoring, nameToID)
+			}
+		}
+	}
+
+	// --- Pitcher projections (shared across dates) ---
+	var pitcherProjSrc projections.PitcherSource
+	fgPitSrc, err := projections.NewFanGraphsPitcherSource()
+	if err != nil {
+		log.Printf("WARNING: fangraphs pitching unavailable (%v) — using rolling stats only", err)
+		pitcherProjSrc = projections.NewPitcherRollingSource()
+	} else {
+		log.Printf("fangraphs pitching projections loaded")
+		pitRolling := projections.NewPitcherRollingSource()
+		pitBaseSrc := projections.NewPitcherChainedSource(fgPitSrc, pitRolling)
+
+		currentPeriod, err := ft.GetCurrentPeriod()
+		if err != nil {
+			log.Printf("WARNING: could not get current period for pitchers (%v) — using Steamer only", err)
+			pitcherProjSrc = pitBaseSrc
+		} else if currentPeriod <= 1 {
+			pitcherProjSrc = pitBaseSrc
+		} else {
+			recentPitStats, err := ft.GetRecentPitcherStats(currentPeriod, 10)
+			if err != nil {
+				log.Printf("WARNING: recent pitcher stats unavailable (%v) — using Steamer only", err)
+				pitcherProjSrc = pitBaseSrc
+			} else {
+				log.Printf("recent pitcher stats loaded: %d players with data", len(recentPitStats))
+				pitNameToID := make(map[string]string)
+				pitPlayerPos := make(map[string][]string)
+				for _, p := range pitcherRoster {
+					pitNameToID[projections.NormalizeName(p.Name)] = p.ID
+					pitPlayerPos[p.ID] = p.Positions
+				}
+				pitcherProjSrc = projections.NewPitcherBlendedSource(pitBaseSrc, recentPitStats, pitcherScoring, pitNameToID, pitPlayerPos)
 			}
 		}
 	}
@@ -142,32 +195,40 @@ func main() {
 	multiDate := len(cfg.Dates) > 1
 	schedClient := schedule.NewClient()
 
-	// Get season start date for period calculation (period 1 = season start day).
+	// Get season start date for period calculation.
 	seasonStart, _, err := ft.GetSeasonDateRange()
 	if err != nil {
 		log.Printf("WARNING: could not get season start (%v) — only today's lineup can be set", err)
 	}
 
+	// Build name/slot lookup maps for display.
 	playerName := make(map[string]string)
 	for _, p := range hitterRoster {
 		playerName[p.ID] = p.Name
 	}
+	for _, p := range pitcherRoster {
+		playerName[p.ID] = p.Name
+	}
 	slotName := make(map[string]string)
-	for _, s := range slots {
+	for _, s := range hitterSlots {
+		slotName[s.PosID] = s.PosName
+	}
+	for _, s := range pitcherSlots {
 		slotName[s.PosID] = s.PosName
 	}
 
 	// --- Parallel fetch + optimize for all dates ---
 	type dateResult struct {
-		date     time.Time
-		period   int
-		isToday  bool
-		result   optimizer.Result
-		warnings []string
+		date          time.Time
+		period        int
+		isToday       bool
+		hitterResult  optimizer.Result
+		pitcherResult optimizer.PitcherResult
+		warnings      []string
 	}
 
 	results := make([]dateResult, len(cfg.Dates))
-	var mu sync.Mutex // protects log output during parallel fetch
+	var mu sync.Mutex
 
 	var g errgroup.Group
 	for i, date := range cfg.Dates {
@@ -178,34 +239,53 @@ func main() {
 
 			var warnings []string
 
-			// Fetch roster for this period so we see what's already been set.
-			dateRoster := hitterRoster
+			// Fetch period-specific rosters.
+			dateHitterRoster := hitterRoster
+			datePitcherRoster := pitcherRoster
 			if !isToday && period > 0 {
 				if r, err := ft.GetHitterRosterForPeriod(period); err == nil {
-					dateRoster = r
+					dateHitterRoster = r
 				} else {
 					mu.Lock()
-					warnings = append(warnings, fmt.Sprintf("could not fetch roster for period %d (%v) — using current roster", period, err))
+					warnings = append(warnings, fmt.Sprintf("could not fetch hitter roster for period %d (%v) — using current", period, err))
+					mu.Unlock()
+				}
+				if r, err := ft.GetPitcherRosterForPeriod(period); err == nil {
+					datePitcherRoster = r
+				} else {
+					mu.Lock()
+					warnings = append(warnings, fmt.Sprintf("could not fetch pitcher roster for period %d (%v) — using current", period, err))
 					mu.Unlock()
 				}
 			}
 
-			// MLB schedule.
+			// MLB schedule + probable pitchers.
 			playingToday, err := schedClient.TeamsPlayingOn(date)
 			if err != nil {
 				warnings = append(warnings, fmt.Sprintf("mlb schedule unavailable for %s (%v) — assuming all teams play", date.Format("2006-01-02"), err))
-				playingToday = allTeamsPlaying(dateRoster)
+				allPlayers := append(dateHitterRoster, datePitcherRoster...)
+				playingToday = allTeamsPlaying(allPlayers)
 			}
 
-			// Optimize.
-			result := optimizer.OptimizeLineup(dateRoster, playingToday, projSrc, scoring, slots)
+			probableStarters, err := schedClient.ProbableStarters(date)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("probable pitchers unavailable for %s (%v) — SPs default to start", date.Format("2006-01-02"), err))
+				probableStarters = map[string]string{} // empty = default to start
+			}
+
+			// Optimize hitters.
+			hitterResult := optimizer.OptimizeLineup(dateHitterRoster, playingToday, hitterProjSrc, hitterScoring, hitterSlots)
+
+			// Optimize pitchers.
+			pitcherResult := optimizer.OptimizePitcherLineup(datePitcherRoster, playingToday, probableStarters, pitcherProjSrc, pitcherScoring, pitcherSlots)
 
 			results[i] = dateResult{
-				date:     date,
-				period:   period,
-				isToday:  isToday,
-				result:   result,
-				warnings: warnings,
+				date:          date,
+				period:        period,
+				isToday:       isToday,
+				hitterResult:  hitterResult,
+				pitcherResult: pitcherResult,
+				warnings:      warnings,
 			}
 			return nil
 		})
@@ -213,10 +293,6 @@ func main() {
 
 	if err := g.Wait(); err != nil {
 		log.Fatalf("parallel optimize: %v", err)
-	}
-
-	if !multiDate && len(results) == 1 {
-		log.Printf("teams playing today: %d", len(results[0].result.Scored))
 	}
 
 	// --- Sequential print + apply ---
@@ -233,11 +309,11 @@ func main() {
 			fmt.Printf("\n=== %s ===\n", header)
 		}
 
-		// --- Print ranking ---
+		// --- Print hitter ranking ---
 		fmt.Println("\n=== Hitter Ranking ===")
 		fmt.Printf("%-25s %-6s %-8s %s\n", "Player", "Team", "Pts/G", "Game?")
 		fmt.Println(repeatStr("-", 55))
-		for _, sp := range dr.result.Scored {
+		for _, sp := range dr.hitterResult.Scored {
 			game := "no"
 			if sp.HasGame {
 				game = "YES"
@@ -245,9 +321,29 @@ func main() {
 			fmt.Printf("%-25s %-6s %-8.2f %s\n", sp.Player.Name, sp.Player.MLBTeam, sp.ExpectedPts, game)
 		}
 
+		// --- Print pitcher ranking ---
+		fmt.Println("\n=== Pitcher Ranking ===")
+		fmt.Printf("%-25s %-6s %-8s %-6s %s\n", "Player", "Team", "Pts/G", "Role", "Game?")
+		fmt.Println(repeatStr("-", 65))
+		for _, sp := range dr.pitcherResult.Scored {
+			game := "no"
+			if sp.HasGame {
+				game = "YES"
+			}
+			role := "RP"
+			if sp.IsStarter {
+				role = "SP"
+			}
+			fmt.Printf("%-25s %-6s %-8.2f %-6s %s\n", sp.Player.Name, sp.Player.MLBTeam, sp.ExpectedPts, role, game)
+		}
+
+		// --- Combine changes ---
+		allActivate := append(dr.hitterResult.ToActivate, dr.pitcherResult.ToActivate...)
+		allBench := append(dr.hitterResult.ToBench, dr.pitcherResult.ToBench...)
+
 		// --- Print planned moves ---
 		fmt.Println("\n=== Planned Lineup Changes ===")
-		if len(dr.result.ToActivate) == 0 && len(dr.result.ToBench) == 0 {
+		if len(allActivate) == 0 && len(allBench) == 0 {
 			fmt.Println("No changes needed.")
 			if !multiDate {
 				os.Exit(0)
@@ -255,10 +351,10 @@ func main() {
 			continue
 		}
 
-		for _, ps := range dr.result.ToActivate {
+		for _, ps := range allActivate {
 			fmt.Printf("  ACTIVATE  %-25s → %s\n", playerName[ps.PlayerID], slotName[ps.PosID])
 		}
-		for _, id := range dr.result.ToBench {
+		for _, id := range allBench {
 			fmt.Printf("  BENCH     %s\n", playerName[id])
 		}
 
@@ -274,9 +370,9 @@ func main() {
 			continue
 		}
 
-		// --- Apply (sequential — Fantrax API is not concurrent-safe) ---
+		// --- Apply combined lineup (sequential — Fantrax API is not concurrent-safe) ---
 		fmt.Printf("\nApplying lineup for %s (period %d)...\n", dateKey, dr.period)
-		if err := ft.ApplyLineup(dr.period, dr.result.ToActivate, dr.result.ToBench); err != nil {
+		if err := ft.ApplyLineup(dr.period, allActivate, allBench); err != nil {
 			log.Fatalf("apply lineup: %v", err)
 		}
 		fmt.Println("Lineup applied successfully.")
