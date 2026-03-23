@@ -1,67 +1,81 @@
 package projections
 
 import (
-	"strings"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
-func TestParseFanGraphsCSV(t *testing.T) {
-	// Minimal CSV fixture mimicking FanGraphs format.
-	csvData := `Name,Team,PA,H,2B,3B,HR,RBI,R,BB,SB,CS,HBP
-Aaron Judge,NYY,600,160,30,2,40,100,100,80,5,2,8
-Freddie Freeman,LAD,580,168,35,1,25,90,95,70,10,3,6
-`
-	r := strings.NewReader(csvData)
-	_ = r // exercise the field parser
-
-	// Parse manually using our helper functions.
-	lines := strings.Split(strings.TrimSpace(csvData), "\n")
-	header := strings.Split(lines[0], ",")
-	idx := buildIndex(header)
-
-	row := strings.Split(lines[1], ",") // Aaron Judge row
-	name := getField(row, idx, "Name")
-	team := getField(row, idx, "Team")
-	hr := parseFloat(getField(row, idx, "HR"))
-
-	if name != "Aaron Judge" {
-		t.Errorf("expected 'Aaron Judge', got %q", name)
+func TestFanGraphsSource_ParsesJSON(t *testing.T) {
+	fixture := []map[string]interface{}{
+		{"PlayerName": "Aaron Judge", "Team": "NYY", "G": 141.0, "PA": 633.0, "H": 143.0,
+			"1B": 77.0, "2B": 23.0, "3B": 1.0, "HR": 42.0,
+			"R": 109.0, "RBI": 102.0, "BB": 112.0, "SB": 9.0, "CS": 2.0, "HBP": 6.0, "SO": 156.0, "GDP": nil},
+		{"PlayerName": "Freddie Freeman", "Team": "LAD", "G": 138.0, "PA": 590.0, "H": 160.0,
+			"1B": 100.0, "2B": 35.0, "3B": 1.0, "HR": 24.0,
+			"R": 95.0, "RBI": 90.0, "BB": 70.0, "SB": 10.0, "CS": 3.0, "HBP": 6.0, "SO": 100.0, "GDP": 10.0},
 	}
-	if team != "NYY" {
-		t.Errorf("expected 'NYY', got %q", team)
-	}
-	if hr != 40 {
-		t.Errorf("expected HR=40, got %v", hr)
-	}
-}
 
-func TestProjectionKeyLookup(t *testing.T) {
-	src := &FanGraphsSource{projections: map[string]*Projection{
-		"aaron judge|NYY": {PA: 600, HR: 40},
-		"freddie freeman|LAD": {PA: 580, HR: 25},
-	}}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(fixture)
+	}))
+	defer srv.Close()
+
+	orig := fangraphsBattingURL
+	fangraphsBattingURL = srv.URL
+	defer func() { fangraphsBattingURL = orig }()
+
+	src, err := NewFanGraphsSource()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	p, ok := src.GetProjection("Aaron Judge", "NYY")
 	if !ok {
 		t.Fatal("expected projection for Aaron Judge")
 	}
-	if p.HR != 40 {
-		t.Errorf("expected HR=40, got %v", p.HR)
+	if p.HR != 42 {
+		t.Errorf("expected HR=42, got %v", p.HR)
 	}
+	if p.G != 141 {
+		t.Errorf("expected G=141, got %v", p.G)
+	}
+}
 
-	// Case-insensitive team lookup.
-	p2, ok2 := src.GetProjection("Freddie Freeman", "lad")
-	if !ok2 {
-		t.Fatal("expected projection for Freddie Freeman with lowercase team")
+func TestFanGraphsSource_CaseInsensitiveTeam(t *testing.T) {
+	src := &FanGraphsSource{projections: map[string]*Projection{
+		"freddie freeman|LAD": {G: 138, HR: 24},
+	}}
+
+	p, ok := src.GetProjection("Freddie Freeman", "lad")
+	if !ok {
+		t.Fatal("expected projection with lowercase team")
 	}
-	if p2.HR != 25 {
-		t.Errorf("expected HR=25, got %v", p2.HR)
+	if p.HR != 24 {
+		t.Errorf("expected HR=24, got %v", p.HR)
+	}
+}
+
+func TestFanGraphsSource_NameFallback(t *testing.T) {
+	src := &FanGraphsSource{projections: map[string]*Projection{
+		"manny machado|SD": {G: 140, HR: 26},
+	}}
+
+	// Different team (traded) - should still find by name.
+	p, ok := src.GetProjection("Manny Machado", "LAD")
+	if !ok {
+		t.Fatal("expected name-only fallback to work")
+	}
+	if p.HR != 26 {
+		t.Errorf("expected HR=26, got %v", p.HR)
 	}
 }
 
 func TestChainedSource_FallsThrough(t *testing.T) {
 	primary := &FanGraphsSource{projections: map[string]*Projection{
-		"judge|NYY": {HR: 40},
+		"aaron judge|NYY": {G: 141, HR: 40},
 	}}
 
 	rolling := NewRollingSource()
@@ -69,40 +83,18 @@ func TestChainedSource_FallsThrough(t *testing.T) {
 
 	chained := NewChainedSource(primary, rolling)
 
-	// Primary has this one.
-	_, ok := chained.GetProjection("judge", "NYY")
+	_, ok := chained.GetProjection("Aaron Judge", "NYY")
 	if !ok {
 		t.Error("expected primary source hit")
 	}
 
-	// Rolling fallback.
 	_, ok2 := chained.GetProjection("mystery player", "COL")
 	if !ok2 {
 		t.Error("expected rolling fallback hit")
 	}
 
-	// Nobody has this.
 	_, ok3 := chained.GetProjection("nobody", "XYZ")
 	if ok3 {
 		t.Error("expected miss for unknown player")
-	}
-}
-
-func TestParseFloat_EdgeCases(t *testing.T) {
-	cases := []struct {
-		input    string
-		expected float64
-	}{
-		{"40", 40},
-		{"3.14", 3.14},
-		{"-", 0},
-		{"", 0},
-		{"  25  ", 25},
-	}
-	for _, c := range cases {
-		got := parseFloat(c.input)
-		if got != c.expected {
-			t.Errorf("parseFloat(%q) = %v, want %v", c.input, got, c.expected)
-		}
 	}
 }

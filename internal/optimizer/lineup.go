@@ -2,13 +2,12 @@ package optimizer
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
 	"github.com/nixon-commits/fantrax-optimizer/internal/projections"
 )
 
-// ScoredPlayer pairs a player with their expected fantasy points today.
+// ScoredPlayer pairs a player with their expected fantasy points per game.
 type ScoredPlayer struct {
 	Player      fantrax.Player
 	ExpectedPts float64
@@ -17,18 +16,12 @@ type ScoredPlayer struct {
 
 // Result describes the lineup changes the optimizer wants to make.
 type Result struct {
-	ToActivate []fantrax.PlayerSlot // move to active
-	ToBench    []string              // player IDs to move to reserve
-	Scored     []ScoredPlayer        // full ranking for logging
+	ToActivate []fantrax.PlayerSlot
+	ToBench    []string // player IDs to move to reserve
+	Scored     []ScoredPlayer
 }
 
 // OptimizeLineup computes the optimal daily hitter lineup.
-//
-//   - roster: all hitters (active + reserve)
-//   - playingToday: MLB team abbreviations with games today
-//   - projSrc: projection data source
-//   - scoring: stat short-name → fantasy points per unit
-//   - slots: ordered active slots (positional first, UTIL last)
 func OptimizeLineup(
 	roster []fantrax.Player,
 	playingToday map[string]bool,
@@ -36,10 +29,9 @@ func OptimizeLineup(
 	scoring fantrax.ScoringWeights,
 	slots []fantrax.Slot,
 ) Result {
-	// Score every hitter.
 	scored := scoreRoster(roster, playingToday, projSrc, scoring)
 
-	// Sort: players with games first, then by expected points descending.
+	// Players with games first, then by expected pts descending.
 	sort.Slice(scored, func(i, j int) bool {
 		if scored[i].HasGame != scored[j].HasGame {
 			return scored[i].HasGame
@@ -47,8 +39,7 @@ func OptimizeLineup(
 		return scored[i].ExpectedPts > scored[j].ExpectedPts
 	})
 
-	// Greedily assign players to slots.
-	assigned := make(map[string]bool) // playerIDs already assigned
+	assigned := make(map[string]bool)
 	var toActivate []fantrax.PlayerSlot
 
 	for _, slot := range slots {
@@ -56,7 +47,7 @@ func OptimizeLineup(
 			if assigned[sp.Player.ID] {
 				continue
 			}
-			if !eligible(sp.Player, slot) {
+			if !fantrax.EligibleForSlot(sp.Player.Positions, slot) {
 				continue
 			}
 			toActivate = append(toActivate, fantrax.PlayerSlot{
@@ -83,7 +74,6 @@ func OptimizeLineup(
 	}
 }
 
-// scoreRoster returns scored players for the full roster.
 func scoreRoster(
 	roster []fantrax.Player,
 	playingToday map[string]bool,
@@ -92,10 +82,10 @@ func scoreRoster(
 ) []ScoredPlayer {
 	scored := make([]ScoredPlayer, 0, len(roster))
 	for _, p := range roster {
-		hasGame := playingToday[strings.ToUpper(p.MLBTeam)]
+		hasGame := playingToday[p.MLBTeam]
 		proj, ok := projSrc.GetProjection(p.Name, p.MLBTeam)
 		var pts float64
-		if ok && proj.PA > 0 {
+		if ok && proj.G > 0 {
 			pts = expectedPts(proj, scoring)
 		}
 		scored = append(scored, ScoredPlayer{
@@ -108,50 +98,43 @@ func scoreRoster(
 }
 
 // expectedPts converts a season projection to expected fantasy points per game.
+// Handles derived stats: 1B (if not projected directly), XBH, TB.
 func expectedPts(proj *projections.Projection, scoring fantrax.ScoringWeights) float64 {
-	// Estimate games from PA (roughly 4 PA/game).
-	games := proj.PA / 4.0
-	if games <= 0 {
+	if proj.G <= 0 {
 		return 0
 	}
 
+	// Derive stats that may not be directly in the projection.
+	singles := proj.Singles
+	if singles == 0 && proj.H > 0 {
+		singles = proj.H - proj.Doubles - proj.Triples - proj.HR
+	}
+	xbh := proj.Doubles + proj.Triples + proj.HR
+	tb := singles + 2*proj.Doubles + 3*proj.Triples + 4*proj.HR
+
 	statMap := map[string]float64{
-		"H":   proj.H,
-		"2B":  proj.Doubles,
-		"3B":  proj.Triples,
-		"HR":  proj.HR,
-		"RBI": proj.RBI,
-		"R":   proj.R,
-		"BB":  proj.BB,
-		"SB":  proj.SB,
-		"CS":  proj.CS,
-		"HBP": proj.HBP,
+		"1B":   singles,
+		"2B":   proj.Doubles,
+		"3B":   proj.Triples,
+		"HR":   proj.HR,
+		"RBI":  proj.RBI,
+		"R":    proj.R,
+		"BB":   proj.BB,
+		"SB":   proj.SB,
+		"CS":   proj.CS,
+		"HBP":  proj.HBP,
+		"SO":   proj.SO,
+		"GIDP": proj.GIDP,
+		"XBH":  xbh,
+		"TB":   tb,
 	}
 
 	var total float64
 	for stat, seasonVal := range statMap {
 		if pts, ok := scoring[stat]; ok {
-			perGame := seasonVal / games
+			perGame := seasonVal / proj.G
 			total += perGame * pts
 		}
 	}
 	return total
-}
-
-// eligible returns true if a player can fill the given slot based on position eligibility.
-func eligible(p fantrax.Player, slot fantrax.Slot) bool {
-	// UTIL accepts any hitter.
-	if slot.PosName == "UTIL" || slot.PosID == "014" {
-		return true
-	}
-	for _, pos := range p.Positions {
-		if strings.EqualFold(pos, slot.PosName) {
-			return true
-		}
-		// Handle MI (2B or SS eligible).
-		if slot.PosName == "MI" && (strings.EqualFold(pos, "2B") || strings.EqualFold(pos, "SS")) {
-			return true
-		}
-	}
-	return false
 }

@@ -2,7 +2,6 @@ package fantrax
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	gofantrax "github.com/pmurley/go-fantrax"
@@ -15,22 +14,44 @@ type Player struct {
 	ID             string
 	Name           string
 	MLBTeam        string // short team name, e.g. "NYY"
-	Positions      []string
-	RosterPosition string // slot they are currently in
-	Status         string // "Active", "Reserve", "Injured Reserve", "Minors"
-	NextGameDate   string // "2026-03-22" or "" if no game found
+	Positions      []string // Fantrax position ID strings, e.g. ["001", "014"]
+	RosterPosition string   // slot they are currently in (position ID)
+	Status         string   // "Active", "Reserve", "Injured Reserve", "Minors"
+	NextGameDate   string   // "2026-03-22" or "" if no game found
 }
 
-// Slot describes one active roster slot and the position ID required to fill it.
+// Slot describes one active roster slot.
+// PosID is the auth_client constant (e.g. "001"), PosName is the league key (e.g. "C").
 type Slot struct {
-	PosID   string // auth_client constant, e.g. auth_client.PosC
-	PosName string // human-readable, e.g. "C"
+	PosID   string
+	PosName string
 }
 
-// ScoringWeights maps stat short-names (as returned by Fantrax) to point values.
+// ScoringWeights maps stat short-names to point values.
 type ScoringWeights map[string]float64
 
-// Client wraps the go-fantrax libraries and exposes only what the optimizer needs.
+// posNameToID maps league position constraint keys to auth_client position ID strings.
+var posNameToID = map[string]string{
+	"C":   auth_client.PosC,    // "001"
+	"1B":  auth_client.Pos1B,   // "002"
+	"2B":  "003",
+	"3B":  auth_client.Pos3B,   // "004"
+	"SS":  auth_client.PosSS,   // "005"
+	"INF": "008",               // infield utility
+	"OF":  auth_client.PosOF,   // "012"
+	"UT":  auth_client.PosUtil, // "014"
+}
+
+// pitcherPosIDs are the Fantrax position IDs that indicate a pitcher slot.
+var pitcherPosIDs = map[string]bool{
+	auth_client.PosSP:  true, // "015"
+	auth_client.PosRP:  true, // "016"
+	auth_client.PosP:   true, // "017"
+	auth_client.PosRP2: true, // "043"
+	auth_client.PosRP3: true, // "044"
+}
+
+// Client wraps the go-fantrax libraries.
 type Client struct {
 	public   *gofantrax.Client
 	auth     *auth_client.Client
@@ -39,21 +60,20 @@ type Client struct {
 }
 
 // NewClient creates both the public (read) and auth (read+write) Fantrax clients.
-// auth_client.NewClient will use chromedp to log in if no cookie cache exists.
 func NewClient(leagueID, teamID string) (*Client, error) {
 	pub, err := gofantrax.NewClient(leagueID, false)
 	if err != nil {
 		return nil, fmt.Errorf("fantrax public client: %w", err)
 	}
 
-	auth, err := auth_client.NewClient(leagueID, false)
+	authc, err := auth_client.NewClient(leagueID, false)
 	if err != nil {
 		return nil, fmt.Errorf("fantrax auth client: %w", err)
 	}
 
 	return &Client{
 		public:   pub,
-		auth:     auth,
+		auth:     authc,
 		leagueID: leagueID,
 		teamID:   teamID,
 	}, nil
@@ -77,44 +97,33 @@ func (c *Client) GetHitterRoster() ([]Player, error) {
 }
 
 // GetActiveSlots returns the ordered list of active hitter slots for the league.
-// Slot order determines filling priority (positional slots before UTIL).
 func (c *Client) GetActiveSlots() ([]Slot, error) {
 	info, err := c.public.GetLeagueInfo(c.leagueID)
 	if err != nil {
 		return nil, fmt.Errorf("get league info: %w", err)
 	}
 
-	// Fixed ordering: positional slots first, UTIL last.
-	order := []struct {
-		code  string
-		posID string
-		name  string
-	}{
-		{"C", auth_client.PosC, "C"},
-		{"1B", auth_client.Pos1B, "1B"},
-		{"2B", "003", "2B"},
-		{"3B", auth_client.Pos3B, "3B"},
-		{"SS", auth_client.PosSS, "SS"},
-		{"MI", auth_client.PosMI, "MI"},
-		{"CF", auth_client.PosCF, "CF"},
-		{"OF", auth_client.PosOF, "OF"},
-		{"UTIL", auth_client.PosUtil, "UTIL"},
-	}
+	// Ordered: positional slots first, utility last.
+	order := []string{"C", "1B", "2B", "3B", "SS", "INF", "OF", "UT"}
 
 	var slots []Slot
-	for _, o := range order {
-		constraint, ok := info.RosterInfo.PositionConstraints[o.code]
+	for _, name := range order {
+		posID, ok := posNameToID[name]
+		if !ok {
+			continue
+		}
+		constraint, ok := info.RosterInfo.PositionConstraints[name]
 		if !ok {
 			continue
 		}
 		for i := 0; i < constraint.MaxActive; i++ {
-			slots = append(slots, Slot{PosID: o.posID, PosName: o.name})
+			slots = append(slots, Slot{PosID: posID, PosName: name})
 		}
 	}
 	return slots, nil
 }
 
-// GetScoringWeights returns hitting stat → point value from league settings.
+// GetScoringWeights returns hitting stat short-names → point values.
 func (c *Client) GetScoringWeights() (ScoringWeights, error) {
 	info, err := c.public.GetLeagueInfo(c.leagueID)
 	if err != nil {
@@ -123,7 +132,7 @@ func (c *Client) GetScoringWeights() (ScoringWeights, error) {
 
 	weights := make(ScoringWeights)
 	for _, setting := range info.ScoringSystem.ScoringCategorySettings {
-		if setting.Group.Code != "HITTING" {
+		if setting.Group.Code != "BASEBALL_HITTING" {
 			continue
 		}
 		for _, cfg := range setting.Configs {
@@ -135,9 +144,7 @@ func (c *Client) GetScoringWeights() (ScoringWeights, error) {
 	return weights, nil
 }
 
-// ApplyLineup sends the full updated fieldMap to Fantrax.
-// It fetches the current roster, applies the desired active/reserve assignments,
-// and calls ConfirmOrExecuteTeamRosterChanges.
+// ApplyLineup sends the updated lineup to Fantrax.
 func (c *Client) ApplyLineup(active []PlayerSlot, reserve []string) error {
 	editor, err := c.auth.NewRosterEditor(0, c.teamID, false, true)
 	if err != nil {
@@ -171,14 +178,12 @@ type PlayerSlot struct {
 	PosID    string
 }
 
-// isHitter returns true if the player is a position player (not a pure pitcher).
+// isHitter returns true if the player has at least one non-pitcher eligible position.
 func isHitter(rp models.RosterPlayer) bool {
 	for _, pos := range rp.Positions {
-		pos = strings.ToUpper(pos)
-		if pos == "SP" || pos == "RP" || pos == "P" {
-			continue
+		if !pitcherPosIDs[pos] {
+			return true
 		}
-		return true
 	}
 	return false
 }
@@ -201,10 +206,8 @@ func toPlayer(rp models.RosterPlayer) Player {
 
 // extractDate returns YYYY-MM-DD from a datetime string.
 func extractDate(dt string) string {
-	// DateTime may be "2026-03-22T13:05:00" or "March 22, 2026 1:05 PM" — normalize.
 	t, err := time.Parse("2006-01-02T15:04:05", dt)
 	if err != nil {
-		// Try to parse other common formats.
 		for _, layout := range []string{"January 2, 2006 3:04 PM", "Jan 2, 2006 3:04 PM"} {
 			if t2, e2 := time.Parse(layout, dt); e2 == nil {
 				t = t2
@@ -217,4 +220,29 @@ func extractDate(dt string) string {
 		return ""
 	}
 	return t.Format("2006-01-02")
+}
+
+// EligibleForSlot returns true if the player's position IDs include the slot's position ID.
+// UT ("014") accepts all hitters.
+// INF ("008") accepts C, 1B, 2B, 3B, SS.
+func EligibleForSlot(playerPositions []string, slot Slot) bool {
+	if slot.PosID == auth_client.PosUtil { // "014" - UT accepts anyone
+		return true
+	}
+	// INF accepts infield positions.
+	if slot.PosID == "008" {
+		infPosIDs := map[string]bool{"001": true, "002": true, "003": true, "004": true, "005": true}
+		for _, pos := range playerPositions {
+			if infPosIDs[pos] {
+				return true
+			}
+		}
+		return false
+	}
+	for _, pos := range playerPositions {
+		if pos == slot.PosID {
+			return true
+		}
+	}
+	return false
 }

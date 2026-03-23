@@ -1,21 +1,22 @@
 package projections
 
 import (
-	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 )
 
-const fangraphsBattingURL = "https://www.fangraphs.com/api/projections?type=steamer&stats=bat&pos=all&team=0&players=0&lg=all"
+var fangraphsBattingURL = "https://www.fangraphs.com/api/projections?type=steamer&stats=bat&pos=all&team=0&players=0&lg=all"
 
-// Projection holds per-season projected counting stats for a hitter.
-// All values are season totals; the optimizer prorates to a per-game rate.
+// Projection holds projected season counting stats for a hitter.
+// All values are season totals; per-game rates are derived by dividing by G.
 type Projection struct {
+	G       float64
 	PA      float64
 	H       float64
+	Singles float64
 	Doubles float64
 	Triples float64
 	HR      float64
@@ -25,20 +26,41 @@ type Projection struct {
 	SB      float64
 	CS      float64
 	HBP     float64
+	SO      float64
+	GIDP    float64
 }
 
-// Source can look up a projection for a player by name and team.
+// Source can look up a projection for a player.
 type Source interface {
 	GetProjection(name, mlbTeam string) (*Projection, bool)
 }
 
+type fgRow struct {
+	PlayerName string  `json:"PlayerName"`
+	Team       string  `json:"Team"`
+	G          float64 `json:"G"`
+	PA         float64 `json:"PA"`
+	H          float64 `json:"H"`
+	Singles    float64 `json:"1B"`
+	Doubles    float64 `json:"2B"`
+	Triples    float64 `json:"3B"`
+	HR         float64 `json:"HR"`
+	RBI        float64 `json:"RBI"`
+	R          float64 `json:"R"`
+	BB         float64 `json:"BB"`
+	SB         float64 `json:"SB"`
+	CS         float64 `json:"CS"`
+	HBP        float64 `json:"HBP"`
+	SO         float64 `json:"SO"`
+	GIDP       float64 `json:"GDP"`
+}
+
 // FanGraphsSource fetches Steamer projections from FanGraphs.
 type FanGraphsSource struct {
-	// key: "lastname, firstname|TEAM" or just name|TEAM
 	projections map[string]*Projection
 }
 
-// NewFanGraphsSource fetches and parses the FanGraphs batting projections CSV.
+// NewFanGraphsSource fetches and parses the FanGraphs batting projections JSON.
 func NewFanGraphsSource() (*FanGraphsSource, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Get(fangraphsBattingURL)
@@ -51,61 +73,51 @@ func NewFanGraphsSource() (*FanGraphsSource, error) {
 		return nil, fmt.Errorf("fangraphs: status %d", resp.StatusCode)
 	}
 
-	r := csv.NewReader(resp.Body)
-	records, err := r.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("fangraphs csv: %w", err)
+	var rows []fgRow
+	if err := json.NewDecoder(resp.Body).Decode(&rows); err != nil {
+		return nil, fmt.Errorf("fangraphs json: %w", err)
 	}
 
-	if len(records) < 2 {
-		return nil, fmt.Errorf("fangraphs csv: no data rows")
-	}
-
-	header := records[0]
-	idx := buildIndex(header)
-
-	src := &FanGraphsSource{projections: make(map[string]*Projection)}
-	for _, row := range records[1:] {
-		if len(row) < len(header) {
+	src := &FanGraphsSource{projections: make(map[string]*Projection, len(rows))}
+	for _, row := range rows {
+		name := strings.TrimSpace(row.PlayerName)
+		team := strings.ToUpper(strings.TrimSpace(row.Team))
+		if name == "" {
 			continue
 		}
-		name := strings.TrimSpace(getField(row, idx, "Name"))
-		team := strings.ToUpper(strings.TrimSpace(getField(row, idx, "Team")))
-		if name == "" || team == "" {
-			continue
-		}
-
 		p := &Projection{
-			PA:      parseFloat(getField(row, idx, "PA")),
-			H:       parseFloat(getField(row, idx, "H")),
-			Doubles: parseFloat(getField(row, idx, "2B")),
-			Triples: parseFloat(getField(row, idx, "3B")),
-			HR:      parseFloat(getField(row, idx, "HR")),
-			RBI:     parseFloat(getField(row, idx, "RBI")),
-			R:       parseFloat(getField(row, idx, "R")),
-			BB:      parseFloat(getField(row, idx, "BB")),
-			SB:      parseFloat(getField(row, idx, "SB")),
-			CS:      parseFloat(getField(row, idx, "CS")),
-			HBP:     parseFloat(getField(row, idx, "HBP")),
+			G:       row.G,
+			PA:      row.PA,
+			H:       row.H,
+			Singles: row.Singles,
+			Doubles: row.Doubles,
+			Triples: row.Triples,
+			HR:      row.HR,
+			RBI:     row.RBI,
+			R:       row.R,
+			BB:      row.BB,
+			SB:      row.SB,
+			CS:      row.CS,
+			HBP:     row.HBP,
+			SO:      row.SO,
+			GIDP:    row.GIDP,
 		}
-		key := projKey(name, team)
-		src.projections[key] = p
+		src.projections[projKey(name, team)] = p
 	}
-
 	return src, nil
 }
 
 // GetProjection looks up a player's projection by name and MLB team.
-// Returns nil, false if the player isn't in the dataset.
 func (s *FanGraphsSource) GetProjection(name, mlbTeam string) (*Projection, bool) {
+	// Try exact name+team match first.
 	key := projKey(name, strings.ToUpper(mlbTeam))
-	p, ok := s.projections[key]
-	if ok {
+	if p, ok := s.projections[key]; ok {
 		return p, true
 	}
-	// Try name-only fallback (handles team changes mid-season).
+	// Name-only fallback (handles mid-season trades).
+	norm := normalizeName(name)
 	for k, v := range s.projections {
-		if strings.HasPrefix(k, normalizeName(name)+"|") {
+		if strings.HasPrefix(k, norm+"|") {
 			return v, true
 		}
 	}
@@ -118,29 +130,4 @@ func projKey(name, team string) string {
 
 func normalizeName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
-}
-
-func buildIndex(header []string) map[string]int {
-	m := make(map[string]int, len(header))
-	for i, h := range header {
-		m[strings.TrimSpace(h)] = i
-	}
-	return m
-}
-
-func getField(row []string, idx map[string]int, col string) string {
-	i, ok := idx[col]
-	if !ok || i >= len(row) {
-		return ""
-	}
-	return row[i]
-}
-
-func parseFloat(s string) float64 {
-	s = strings.TrimSpace(s)
-	if s == "" || s == "-" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
 }

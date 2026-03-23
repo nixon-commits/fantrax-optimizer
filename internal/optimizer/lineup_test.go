@@ -34,13 +34,13 @@ func TestOptimizeLineup_BasicRanking(t *testing.T) {
 	// Star hitter: ~0.05 HR/game, good all-around
 	// Bench bat:   minimal stats
 	proj := newStubProj(map[string]*projections.Projection{
-		"Star Hitter": {PA: 600, H: 160, HR: 30, RBI: 90, R: 90, BB: 60, SB: 15},
-		"Bench Bat":   {PA: 200, H: 40, HR: 5, RBI: 20, R: 20, BB: 10, SB: 1},
+		"Star Hitter": {G: 150, PA: 600, H: 160, HR: 30, RBI: 90, R: 90, BB: 60, SB: 15},
+		"Bench Bat":   {G: 50, PA: 200, H: 40, HR: 5, RBI: 20, R: 20, BB: 10, SB: 1},
 	})
 
 	roster := []fantrax.Player{
-		{ID: "p1", Name: "Star Hitter", MLBTeam: "NYY", Positions: []string{"1B", "OF"}, Status: "Active"},
-		{ID: "p2", Name: "Bench Bat", MLBTeam: "BOS", Positions: []string{"1B"}, Status: "Reserve"},
+		{ID: "p1", Name: "Star Hitter", MLBTeam: "NYY", Positions: []string{"002", "012", "014"}, Status: "Active"},
+		{ID: "p2", Name: "Bench Bat", MLBTeam: "BOS", Positions: []string{"002", "014"}, Status: "Reserve"},
 	}
 
 	slots := []fantrax.Slot{
@@ -63,13 +63,13 @@ func TestOptimizeLineup_NoGame_BenchesPlayer(t *testing.T) {
 	scoring := fantrax.ScoringWeights{"H": 1.0, "HR": 4.0}
 
 	proj := newStubProj(map[string]*projections.Projection{
-		"Active No Game": {PA: 600, H: 180, HR: 35},
-		"Reserve Has Game": {PA: 400, H: 100, HR: 10},
+		"Active No Game":   {G: 150, PA: 600, H: 180, HR: 35},
+		"Reserve Has Game": {G: 100, PA: 400, H: 100, HR: 10},
 	})
 
 	roster := []fantrax.Player{
-		{ID: "p1", Name: "Active No Game", MLBTeam: "NYY", Positions: []string{"OF"}, Status: "Active"},
-		{ID: "p2", Name: "Reserve Has Game", MLBTeam: "BOS", Positions: []string{"OF"}, Status: "Reserve"},
+		{ID: "p1", Name: "Active No Game", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Active"},
+		{ID: "p2", Name: "Reserve Has Game", MLBTeam: "BOS", Positions: []string{"012", "014"}, Status: "Reserve"},
 	}
 
 	slots := []fantrax.Slot{
@@ -98,13 +98,13 @@ func TestOptimizeLineup_PositionEligibility(t *testing.T) {
 	scoring := fantrax.ScoringWeights{"H": 1.0, "HR": 4.0}
 
 	proj := newStubProj(map[string]*projections.Projection{
-		"Catcher":    {PA: 400, H: 90, HR: 15},
-		"Outfielder": {PA: 550, H: 155, HR: 25},
+		"Catcher":    {G: 100, PA: 400, H: 90, HR: 15},
+		"Outfielder": {G: 138, PA: 550, H: 155, HR: 25},
 	})
 
 	roster := []fantrax.Player{
-		{ID: "c1", Name: "Catcher", MLBTeam: "NYY", Positions: []string{"C"}, Status: "Active"},
-		{ID: "of1", Name: "Outfielder", MLBTeam: "NYY", Positions: []string{"OF"}, Status: "Active"},
+		{ID: "c1", Name: "Catcher", MLBTeam: "NYY", Positions: []string{"001", "014"}, Status: "Active"},
+		{ID: "of1", Name: "Outfielder", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Active"},
 	}
 
 	slots := []fantrax.Slot{
@@ -137,11 +137,11 @@ func TestOptimizeLineup_UtilFillsAnyHitter(t *testing.T) {
 	scoring := fantrax.ScoringWeights{"H": 1.0}
 
 	proj := newStubProj(map[string]*projections.Projection{
-		"Second Baseman": {PA: 500, H: 140},
+		"Second Baseman": {G: 125, PA: 500, H: 140},
 	})
 
 	roster := []fantrax.Player{
-		{ID: "2b1", Name: "Second Baseman", MLBTeam: "CHC", Positions: []string{"2B"}, Status: "Reserve"},
+		{ID: "2b1", Name: "Second Baseman", MLBTeam: "CHC", Positions: []string{"003", "014"}, Status: "Reserve"},
 	}
 
 	// Only a UTIL slot — 2B should fill it.
@@ -159,22 +159,25 @@ func TestOptimizeLineup_UtilFillsAnyHitter(t *testing.T) {
 }
 
 func TestExpectedPts_Calculation(t *testing.T) {
+	// 150 games, 30 HR, 90 RBI, 120 singles
 	proj := &projections.Projection{
-		PA:  600, // 150 games equivalent
-		H:   150,
-		HR:  30,
-		RBI: 90,
+		G:       150,
+		PA:      600,
+		H:       150,
+		Singles: 120,
+		HR:      30,
+		RBI:     90,
 	}
 	scoring := fantrax.ScoringWeights{
-		"H":   1.0,
+		"1B":  1.0,
 		"HR":  4.0,
 		"RBI": 1.0,
 	}
 
 	pts := expectedPts(proj, scoring)
 
-	// Per game: 1 H + 0.2 HR*4 + 0.6 RBI = 1 + 0.8 + 0.6 = 2.4
-	if pts < 2.3 || pts > 2.5 {
-		t.Errorf("expected ~2.4 pts/game, got %.4f", pts)
+	// Per game: (120/150)*1 + (30/150)*4 + (90/150)*1 = 0.8 + 0.8 + 0.6 = 2.2
+	if pts < 2.1 || pts > 2.3 {
+		t.Errorf("expected ~2.2 pts/game, got %.4f", pts)
 	}
 }
