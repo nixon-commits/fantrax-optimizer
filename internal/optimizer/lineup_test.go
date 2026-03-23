@@ -197,6 +197,58 @@ func TestOptimizeLineup_BacktrackingBeatsGreedy(t *testing.T) {
 	}
 }
 
+// stubBlendedSource implements both Source and PtsPerGameSource.
+type stubBlendedSource struct {
+	projData map[string]*projections.Projection
+	ptsData  map[string]float64
+}
+
+func (s *stubBlendedSource) GetProjection(name, _ string) (*projections.Projection, bool) {
+	p, ok := s.projData[name]
+	return p, ok
+}
+
+func (s *stubBlendedSource) GetPtsPerGame(name, _ string, _ fantrax.ScoringWeights) (float64, bool) {
+	pts, ok := s.ptsData[name]
+	return pts, ok
+}
+
+func TestOptimizeLineup_UsesBlendedPtsPerGame(t *testing.T) {
+	src := &stubBlendedSource{
+		projData: map[string]*projections.Projection{
+			"Player A": {G: 100, HR: 10}, // expectedPts with HR=4 would be 0.4
+			"Player B": {G: 100, HR: 20}, // expectedPts with HR=4 would be 0.8
+		},
+		ptsData: map[string]float64{
+			"Player A": 5.0, // blended overrides to 5.0
+			"Player B": 3.0, // blended overrides to 3.0
+		},
+	}
+
+	scoring := fantrax.ScoringWeights{"HR": 4.0}
+
+	roster := []fantrax.Player{
+		{ID: "a", Name: "Player A", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve"},
+		{ID: "b", Name: "Player B", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve"},
+	}
+
+	slots := []fantrax.Slot{{PosID: "012", PosName: "OF"}}
+	playingToday := map[string]bool{"NYY": true}
+
+	result := OptimizeLineup(roster, playingToday, src, scoring, slots)
+
+	// Player A should be chosen (5.0 > 3.0) even though Player B has more HR in Steamer
+	if len(result.Scored) < 2 {
+		t.Fatalf("expected 2 scored players, got %d", len(result.Scored))
+	}
+	if result.Scored[0].Player.Name != "Player A" {
+		t.Errorf("expected Player A ranked first, got %s", result.Scored[0].Player.Name)
+	}
+	if result.Scored[0].ExpectedPts != 5.0 {
+		t.Errorf("expected 5.0 pts, got %.2f", result.Scored[0].ExpectedPts)
+	}
+}
+
 func TestExpectedPts_Calculation(t *testing.T) {
 	// 150 games, 30 HR, 90 RBI, 120 singles
 	proj := &projections.Projection{

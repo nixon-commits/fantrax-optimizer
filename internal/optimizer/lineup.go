@@ -181,14 +181,28 @@ func scoreRoster(
 	projSrc projections.Source,
 	scoring fantrax.ScoringWeights,
 ) []ScoredPlayer {
+	pps, hasPPS := projSrc.(projections.PtsPerGameSource)
+
 	scored := make([]ScoredPlayer, 0, len(roster))
 	for _, p := range roster {
 		hasGame := playingToday[p.MLBTeam]
-		proj, ok := projSrc.GetProjection(p.Name, p.MLBTeam)
 		var pts float64
-		if ok && proj.G > 0 {
-			pts = expectedPts(proj, scoring)
+		found := false
+
+		if hasPPS {
+			if blended, ok := pps.GetPtsPerGame(p.Name, p.MLBTeam, scoring); ok {
+				pts = blended
+				found = true
+			}
 		}
+
+		if !found {
+			proj, ok := projSrc.GetProjection(p.Name, p.MLBTeam)
+			if ok && proj.G > 0 {
+				pts = expectedPts(proj, scoring)
+			}
+		}
+
 		scored = append(scored, ScoredPlayer{
 			Player:      p,
 			ExpectedPts: pts,
