@@ -30,3 +30,5 @@ jobs:
           FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
           FANTRAX_LEAGUE_ID: ${{ secrets.FANTRAX_LEAGUE_ID }}
           FANTRAX_TEAM_ID: ${{ secrets.FANTRAX_TEAM_ID }}
+          FANTRAX_IL_SLOTS: ${{ secrets.FANTRAX_IL_SLOTS }}
+          FANTRAX_MINORS_SLOTS: ${{ secrets.FANTRAX_MINORS_SLOTS }}
