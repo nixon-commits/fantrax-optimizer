@@ -10,11 +10,14 @@ go run ./cmd --dry-run  # run locally without applying changes
 go run ./cmd --dry-run --dates 2026-04-01  # test a specific date
 go run ./cmd --dry-run --dates 2026-03-26:2026-03-28  # test a date range
 go run ./cmd --dry-run --dates all  # test full season from today
+go run ./cmd --prospects --dry-run  # run prospect report locally
 ```
 
 Tests require no credentials — all network dependencies are mocked via interfaces or test servers.
 
 For local dev, create a `.env` file (gitignored) with `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Loaded automatically by `godotenv`.
+
+Optional prospect report env vars (all have defaults): `PROSPECT_ROLLING_DAYS` (14), `PROSPECT_MIN_GAMES` (8), `PROSPECT_RANK_CACHE_HOURS` (168), `PROSPECT_UPGRADE_RANK_THRESHOLD` (20).
 
 ## Architecture
 
@@ -41,6 +44,8 @@ fangraphs proj  ──┘
 **`internal/projections`** — FanGraphs Steamer projections (primary) with rolling-stats fallback chained via `ChainedSource`. FanGraphs returns **JSON** (not CSV); player name field is `PlayerName`. The `Projection` struct includes derived stats (`Singles`, `XBH`, `TB`) that must be computed from raw fields before scoring.
 
 **Blended scoring** — `BlendedSource` in `projections/blended.go` wraps Steamer with recent Fantrax stats (last 10 scoring periods). Formula: `0.60 * steamerPtsPerGame + 0.40 * recentFP/G`. Falls back to 100% Steamer when no recent data. The `PtsPerGameSource` interface (type assertion, not on `Source`) lets the optimizer use pre-computed blended values. Recent stats are fetched in parallel via `errgroup` in `fantrax/recent_stats.go`.
+
+**`internal/prospects`** — monitors minor league prospects across MLB transactions, MiLB performance breakouts, and prospect ranking sources (MLB Pipeline primary, FanGraphs fallback). Produces a daily prospect report in the GHA job summary with call-up alerts, hot streak detection, free agent watch, and upgrade recommendations. Separate from roster alerts (which detect slot mismatches); this focuses on external data to find new players to pick up. Rankings are cached in `.prospects-cache/` (168h default TTL). Breakout detection uses level-adjusted thresholds (AAA/AA/A-ball). Transaction tracking uses a cursor to avoid duplicate alerts across runs.
 
 **`internal/schedule`** — hits `statsapi.mlb.com` for today's game schedule. Returns a `map[string]bool` of playing MLB team abbreviations. The URL is a `var` (not `const`) to allow test overriding.
 

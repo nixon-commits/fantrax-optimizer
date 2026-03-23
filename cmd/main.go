@@ -12,6 +12,7 @@ import (
 	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
 	"github.com/nixon-commits/fantrax-optimizer/internal/optimizer"
 	"github.com/nixon-commits/fantrax-optimizer/internal/projections"
+	"github.com/nixon-commits/fantrax-optimizer/internal/prospects"
 	"github.com/nixon-commits/fantrax-optimizer/internal/roster"
 	"github.com/nixon-commits/fantrax-optimizer/internal/schedule"
 	"golang.org/x/sync/errgroup"
@@ -21,6 +22,7 @@ func main() {
 	dryRun := flag.Bool("dry-run", false, "print planned moves without applying them")
 	datesStr := flag.String("dates", "", "date(s) for schedule lookup: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, or 'all' (default: today)")
 	checkRoster := flag.Bool("check-roster", true, "check for roster slot mismatches (IL/minors)")
+	runProspects := flag.Bool("prospects", false, "run minor league prospect report")
 	flag.Parse()
 
 	today := time.Now().Truncate(24 * time.Hour)
@@ -80,6 +82,13 @@ func main() {
 				fmt.Printf("  ⚠ %-25s (%s)  %s → %s\n", a.Player.Name, a.Player.MLBTeam, label, a.Suggestion)
 			}
 			fmt.Println()
+		}
+	}
+
+	// --- Prospect report (if requested) ---
+	if *runProspects {
+		if err := prospects.RunProspectReport(ft, *cfg, today); err != nil {
+			log.Printf("WARNING: prospect report failed (%v)", err)
 		}
 	}
 

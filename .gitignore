@@ -3,4 +3,5 @@ fantrax-optimizer
 *.test
 .claude/settings.local.json
 .fantrax-cache/
+.prospects-cache/
 verify_periods

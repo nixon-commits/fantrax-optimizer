@@ -20,7 +20,7 @@ jobs:
       - uses: browser-actions/setup-chrome@v2
 
       - name: Optimize lineup
-        run: go run ./cmd
+        run: go run ./cmd --prospects
         env:
           FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
           FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
