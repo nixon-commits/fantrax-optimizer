@@ -29,7 +29,7 @@ func makeSlots(names ...string) []fantrax.Slot {
 	return slots
 }
 
-func TestOptimizePitcherLineup_SPBenchedWhenNotProbable(t *testing.T) {
+func TestOptimizePitcherLineup_NonStartingSPFillsEmptySlot(t *testing.T) {
 	roster := []fantrax.Player{
 		{ID: "p1", Name: "Ace Pitcher", MLBTeam: "NYY", Positions: []string{auth_client.PosSP}, Status: "Reserve"},
 	}
@@ -43,9 +43,39 @@ func TestOptimizePitcherLineup_SPBenchedWhenNotProbable(t *testing.T) {
 
 	result := OptimizePitcherLineup(roster, playing, probables, src, scoring, slots)
 
-	// SP should not be activated because they are not the probable starter.
-	if len(result.ToActivate) != 0 {
-		t.Errorf("expected 0 activations (SP not probable), got %d", len(result.ToActivate))
+	// Non-starting SP whose team plays should fill an empty slot (at reduced value).
+	if len(result.ToActivate) != 1 {
+		t.Errorf("expected 1 activation (non-starting SP fills empty slot), got %d", len(result.ToActivate))
+	}
+	for _, sp := range result.Scored {
+		if sp.Player.ID == "p1" && sp.IsStarter {
+			t.Error("non-probable SP should not be marked as starter")
+		}
+	}
+}
+
+func TestOptimizePitcherLineup_RPPreferredOverNonStartingSP(t *testing.T) {
+	roster := []fantrax.Player{
+		{ID: "p1", Name: "Ace SP", MLBTeam: "NYY", Positions: []string{auth_client.PosSP}, Status: "Reserve"},
+		{ID: "r1", Name: "Closer", MLBTeam: "BOS", Positions: []string{auth_client.PosRP}, Status: "Reserve"},
+	}
+	playing := map[string]bool{"NYY": true, "BOS": true}
+	probables := map[string]string{"someone else": "NYY"} // Ace SP is not starting
+	src := &stubPitcherSource{data: map[string]*projections.PitcherProjection{
+		"ace sp": {G: 30, GS: 30, IP: 180, K: 200, W: 15}, // high value but not starting
+		"closer": {G: 60, IP: 65, K: 70, SV: 30},           // lower value but guaranteed to pitch
+	}}
+	scoring := fantrax.ScoringWeights{"K": 1.0, "W": 5.0, "IP": 1.0, "SV": 5.0}
+	slots := makeSlots("P") // only 1 slot
+
+	result := OptimizePitcherLineup(roster, playing, probables, src, scoring, slots)
+
+	if len(result.ToActivate) != 1 {
+		t.Fatalf("expected 1 activation, got %d", len(result.ToActivate))
+	}
+	// RP should be preferred over non-starting SP because SP's value is discounted.
+	if result.ToActivate[0].PlayerID != "r1" {
+		t.Errorf("expected RP (r1) preferred over non-starting SP, got %s", result.ToActivate[0].PlayerID)
 	}
 }
 

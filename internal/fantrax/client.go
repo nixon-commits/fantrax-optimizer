@@ -17,6 +17,7 @@ type Player struct {
 	Name           string
 	MLBTeam        string   // short team name, e.g. "NYY"
 	Positions      []string // Fantrax position ID strings, e.g. ["001", "014"]
+	PosShortNames  string   // display positions, e.g. "SP", "RP", "C,1B"
 	RosterPosition string   // slot they are currently in (position ID)
 	Status         string   // "Active", "Reserve", "Injured Reserve", "Minors"
 	NextGameDate   string   // "2026-03-22" or "" if no game found
@@ -310,6 +311,7 @@ func toPlayer(rp models.RosterPlayer) Player {
 		Name:           rp.Name,
 		MLBTeam:        rp.TeamShortName,
 		Positions:      rp.Positions,
+		PosShortNames:  rp.PosShortNames,
 		RosterPosition: rp.RosterPosition,
 		Status:         rp.Status,
 		NextGameDate:   nextDate,

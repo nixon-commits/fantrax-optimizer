@@ -319,18 +319,22 @@ func main() {
 
 		// --- Print pitcher ranking ---
 		fmt.Println("\n=== Pitcher Ranking ===")
-		fmt.Printf("%-25s %-6s %-8s %-6s %s\n", "Player", "Team", "Pts/G", "Role", "Game?")
-		fmt.Println(repeatStr("-", 65))
+		fmt.Printf("%-25s %-6s %-8s %-6s %-6s %s\n", "Player", "Team", "Pts/G", "Role", "Prob", "Game?")
+		fmt.Println(repeatStr("-", 72))
 		for _, sp := range dr.pitcherResult.Scored {
 			game := "no"
 			if sp.HasGame {
 				game = "YES"
 			}
-			role := "RP"
-			if sp.IsStarter {
-				role = "SP"
+			role := sp.Player.PosShortNames
+			if role == "" {
+				role = "P"
 			}
-			fmt.Printf("%-25s %-6s %-8.2f %-6s %s\n", sp.Player.Name, sp.Player.MLBTeam, sp.ExpectedPts, role, game)
+			prob := ""
+			if sp.IsStarter {
+				prob = "YES"
+			}
+			fmt.Printf("%-25s %-6s %-8.2f %-6s %-6s %s\n", sp.Player.Name, sp.Player.MLBTeam, sp.ExpectedPts, role, prob, game)
 		}
 
 		// --- Combine changes ---

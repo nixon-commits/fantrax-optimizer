@@ -2,6 +2,7 @@ package optimizer
 
 import (
 	"sort"
+	"strings"
 
 	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
 	"github.com/nixon-commits/fantrax-optimizer/internal/projections"
@@ -48,18 +49,24 @@ func OptimizePitcherLineup(
 		return scored[i].Player.ID < scored[j].Player.ID
 	})
 
-	// Convert to ScoredPlayer for reuse of optimalAssignment.
-	// Only include pitchers with games as candidates — unlike hitters,
-	// pitchers without games (SP on non-start days) should not fill slots.
+	// Convert to ScoredPlayer for slot assignment.
+	// Non-starting SPs whose team plays are eligible but unlikely to
+	// pitch a full game. Discount their value to 10% so RPs and probable
+	// starters are preferred, while non-starters still fill empty slots.
 	var generic []ScoredPlayer
 	for _, sp := range scored {
-		if sp.HasGame {
-			generic = append(generic, ScoredPlayer{
-				Player:      sp.Player,
-				ExpectedPts: sp.ExpectedPts,
-				HasGame:     sp.HasGame,
-			})
+		if !sp.HasGame {
+			continue
 		}
+		pts := sp.ExpectedPts
+		if !sp.IsStarter && (isSPEligible(sp.Player.Positions) || strings.Contains(sp.Player.PosShortNames, "SP")) {
+			pts *= 0.10
+		}
+		generic = append(generic, ScoredPlayer{
+			Player:      sp.Player,
+			ExpectedPts: pts,
+			HasGame:     sp.HasGame,
+		})
 	}
 
 	// Build current assignment map.
@@ -118,31 +125,27 @@ func scorePitcherRoster(
 			continue
 		}
 
-		spEligible := isSPEligible(p.Positions)
 		teamPlays := playingToday[p.MLBTeam]
+		normalizedName := projections.NormalizeName(p.Name)
+
+		// Determine SP eligibility from PosShortNames (e.g. "SP", "RP").
+		// Position IDs may only contain generic "P" ("017") in leagues
+		// that use a single P slot, so PosShortNames is the reliable source.
+		spEligible := isSPEligible(p.Positions) || strings.Contains(p.PosShortNames, "SP")
 
 		// Determine hasGame based on role.
 		var hasGame, isStarter bool
-		normalizedName := projections.NormalizeName(p.Name)
 
 		if spEligible {
 			if hasProbableData {
-				// SP with probable data: only start if listed as probable starter.
 				if team, ok := probableStarters[normalizedName]; ok && team == p.MLBTeam {
+					// SP listed as probable starter: full value.
 					hasGame = true
 					isStarter = true
-				} else if !teamPlays {
-					// Team doesn't play — no game regardless.
-					hasGame = false
 				} else {
-					// Team plays but pitcher not listed as probable: bench.
-					// However, dual SP/RP players can still pitch in relief.
-					if isRPEligible(p.Positions) {
-						// Dual eligible: treat as RP when not starting.
-						hasGame = teamPlays
-					} else {
-						hasGame = false
-					}
+					// SP not starting: still eligible if team plays (could
+					// enter in relief) but lower priority than RPs/starters.
+					hasGame = teamPlays
 				}
 			} else {
 				// No probable data (future date/TBD): default to start if team plays.
@@ -150,7 +153,7 @@ func scorePitcherRoster(
 				isStarter = teamPlays
 			}
 		} else {
-			// RP-only: start if team plays.
+			// RP: always eligible if team plays (can enter any game).
 			hasGame = teamPlays
 		}
 
@@ -236,3 +239,4 @@ func isRPEligible(positions []string) bool {
 	}
 	return false
 }
+
