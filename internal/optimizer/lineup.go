@@ -40,8 +40,17 @@ func OptimizeLineup(
 		return scored[i].ExpectedPts > scored[j].ExpectedPts
 	})
 
+	// Build current assignment map: playerID → posID.
+	currentAssign := make(map[string]string)
+	for _, p := range roster {
+		if p.Status == "Active" && p.RosterPosition != "" {
+			currentAssign[p.ID] = p.RosterPosition
+		}
+	}
+
 	// Use backtracking to find the assignment that maximizes total points.
-	toActivate := optimalAssignment(scored, slots)
+	// Pass current assignments so tied scores prefer fewer changes (stability).
+	toActivate := optimalAssignment(scored, slots, currentAssign)
 
 	// Build set of players in the optimal lineup.
 	assigned := make(map[string]bool)
@@ -49,18 +58,10 @@ func OptimizeLineup(
 		assigned[ps.PlayerID] = true
 	}
 
-	// Build current assignment map: playerID → posID.
-	current := make(map[string]string)
-	for _, p := range roster {
-		if p.Status == "Active" && p.RosterPosition != "" {
-			current[p.ID] = p.RosterPosition
-		}
-	}
-
 	// Only emit changes: activations where player isn't already in that slot.
 	var changedActivate []fantrax.PlayerSlot
 	for _, ps := range toActivate {
-		if current[ps.PlayerID] != ps.PosID {
+		if currentAssign[ps.PlayerID] != ps.PosID {
 			changedActivate = append(changedActivate, ps)
 		}
 	}
@@ -91,21 +92,21 @@ func effectivePts(sp ScoredPlayer) float64 {
 
 // optimalAssignment uses backtracking to find the slot assignment
 // that maximizes total effective points across all slots.
-func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot) []fantrax.PlayerSlot {
+// When two assignments have the same score, it prefers the one with
+// fewer changes from currentAssign (playerID → posID) for stability.
+func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot, currentAssign map[string]string) []fantrax.PlayerSlot {
 	bestTotal := math.Inf(-1)
+	bestChanges := math.MaxInt
 	var bestAssign []fantrax.PlayerSlot
 
-	current := make([]fantrax.PlayerSlot, len(slots))
+	candidate := make([]fantrax.PlayerSlot, len(slots))
 	used := make(map[int]bool) // index into scored
 
 	// upperBound computes the max additional pts possible from remaining slots,
 	// assuming each gets the best available unused player (ignoring eligibility).
 	upperBound := func(slotIdx int, total float64) float64 {
 		bound := total
-		remaining := 0
-		for i := slotIdx; i < len(slots); i++ {
-			remaining++
-		}
+		remaining := len(slots) - slotIdx
 		avail := make([]float64, 0, remaining)
 		for i, sp := range scored {
 			if !used[i] {
@@ -122,19 +123,31 @@ func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot) []fantrax.Pl
 		return bound
 	}
 
+	countChanges := func(assign []fantrax.PlayerSlot) int {
+		n := 0
+		for _, ps := range assign {
+			if ps.PlayerID != "" && currentAssign[ps.PlayerID] != ps.PosID {
+				n++
+			}
+		}
+		return n
+	}
+
 	var search func(slotIdx int, total float64)
 	search = func(slotIdx int, total float64) {
 		if slotIdx == len(slots) {
-			if total > bestTotal {
+			changes := countChanges(candidate)
+			if total > bestTotal || (total == bestTotal && changes < bestChanges) {
 				bestTotal = total
-				bestAssign = make([]fantrax.PlayerSlot, len(current))
-				copy(bestAssign, current)
+				bestChanges = changes
+				bestAssign = make([]fantrax.PlayerSlot, len(candidate))
+				copy(bestAssign, candidate)
 			}
 			return
 		}
 
 		// Prune: even the best-case remaining can't beat current best.
-		if upperBound(slotIdx, total) <= bestTotal {
+		if upperBound(slotIdx, total) < bestTotal {
 			return
 		}
 
@@ -148,7 +161,7 @@ func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot) []fantrax.Pl
 				continue
 			}
 			used[i] = true
-			current[slotIdx] = fantrax.PlayerSlot{
+			candidate[slotIdx] = fantrax.PlayerSlot{
 				PlayerID: sp.Player.ID,
 				PosID:    slot.PosID,
 			}
@@ -159,7 +172,7 @@ func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot) []fantrax.Pl
 
 		// Allow leaving a slot empty if no eligible player found.
 		if !filled {
-			current[slotIdx] = fantrax.PlayerSlot{}
+			candidate[slotIdx] = fantrax.PlayerSlot{}
 			search(slotIdx+1, total)
 		}
 	}
