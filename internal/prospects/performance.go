@@ -138,7 +138,7 @@ func fetchGameLogs(playerID int, group string, season int) ([]gameLogEntry, erro
 					InningsPitched string `json:"inningsPitched"`
 					EarnedRuns   int     `json:"earnedRuns"`
 					StrikeOuts   int     `json:"strikeOuts"`
-					HitsAllowed  int     `json:"hits"` // pitcher context
+					HitsAllowed  int     `json:"hitsAllowed"`
 				} `json:"stat"`
 			} `json:"splits"`
 		} `json:"stats"`
