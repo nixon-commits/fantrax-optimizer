@@ -78,7 +78,31 @@ func main() {
 	} else {
 		log.Printf("fangraphs projections loaded")
 		rolling := projections.NewRollingSource()
-		projSrc = projections.NewChainedSource(fgSrc, rolling)
+		baseSrc := projections.NewChainedSource(fgSrc, rolling)
+
+		// --- Recent stats for blending ---
+		currentPeriod, err := ft.GetCurrentPeriod()
+		if err != nil {
+			log.Printf("WARNING: could not get current period (%v) — using Steamer only", err)
+			projSrc = baseSrc
+		} else if currentPeriod <= 1 {
+			log.Printf("season not started (period %d) — using Steamer only", currentPeriod)
+			projSrc = baseSrc
+		} else {
+			log.Printf("current period: %d, fetching last 10 periods...", currentPeriod)
+			recentStats, err := ft.GetRecentStats(currentPeriod, 10)
+			if err != nil {
+				log.Printf("WARNING: recent stats unavailable (%v) — using Steamer only", err)
+				projSrc = baseSrc
+			} else {
+				log.Printf("recent stats loaded: %d players with data", len(recentStats))
+				nameToID := make(map[string]string)
+				for _, p := range roster {
+					nameToID[projections.NormalizeName(p.Name)] = p.ID
+				}
+				projSrc = projections.NewBlendedSource(baseSrc, recentStats, scoring, nameToID)
+			}
+		}
 	}
 
 	// --- Optimize ---
