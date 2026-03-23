@@ -2,6 +2,7 @@ package fantrax
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	gofantrax "github.com/pmurley/go-fantrax"
@@ -61,6 +62,10 @@ type Client struct {
 
 // NewClient creates both the public (read) and auth (read+write) Fantrax clients.
 func NewClient(leagueID, teamID string) (*Client, error) {
+	if err := os.MkdirAll(auth_client.CacheDir, 0755); err != nil {
+		return nil, fmt.Errorf("create cache dir: %w", err)
+	}
+
 	pub, err := gofantrax.NewClient(leagueID, false)
 	if err != nil {
 		return nil, fmt.Errorf("fantrax public client: %w", err)
