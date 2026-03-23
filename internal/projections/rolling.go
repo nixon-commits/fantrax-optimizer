@@ -7,7 +7,7 @@ package projections
 // Season games played is assumed to be 162 so that per-game rates
 // are comparable to FanGraphs season projections when divided by PA.
 type RollingSource struct {
-	// key: normalizeName(playerName)
+	// key: NormalizeName(playerName)
 	stats map[string]*Projection
 }
 
@@ -28,7 +28,7 @@ func (s *RollingSource) AddPlayer(
 		return
 	}
 	scale := 162.0 / float64(gamesPlayed)
-	s.stats[normalizeName(name)] = &Projection{
+	s.stats[NormalizeName(name)] = &Projection{
 		PA:      float64(gamesPlayed) * 4.0 * scale, // rough 4 PA/game estimate
 		H:       h * scale,
 		Doubles: doubles * scale,
@@ -45,7 +45,7 @@ func (s *RollingSource) AddPlayer(
 
 // GetProjection implements Source.
 func (s *RollingSource) GetProjection(name, _ string) (*Projection, bool) {
-	p, ok := s.stats[normalizeName(name)]
+	p, ok := s.stats[NormalizeName(name)]
 	return p, ok
 }
 

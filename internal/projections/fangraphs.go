@@ -119,7 +119,7 @@ func (s *FanGraphsSource) GetProjection(name, mlbTeam string) (*Projection, bool
 	}
 	// Name-only fallback (handles mid-season trades).
 	// Only used when exactly one player has this name to avoid collisions.
-	norm := normalizeName(name)
+	norm := NormalizeName(name)
 	var match *Projection
 	var count int
 	for k, v := range s.projections {
@@ -138,10 +138,10 @@ func (s *FanGraphsSource) GetProjection(name, mlbTeam string) (*Projection, bool
 }
 
 func projKey(name, team string) string {
-	return normalizeName(name) + "|" + strings.ToUpper(team)
+	return NormalizeName(name) + "|" + strings.ToUpper(team)
 }
 
-func normalizeName(name string) string {
+func NormalizeName(name string) string {
 	// Strip diacritics (é→e, í→i, ñ→n) so accented FanGraphs names
 	// match plain-ASCII Fantrax names.
 	var b strings.Builder
