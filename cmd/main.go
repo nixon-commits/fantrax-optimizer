@@ -19,13 +19,20 @@ import (
 func main() {
 	dryRun := flag.Bool("dry-run", false, "print planned moves without applying them")
 	datesStr := flag.String("dates", "", "date(s) for schedule lookup: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, or 'all' (default: today)")
-	checkRoster := flag.Bool("check-roster", false, "check for roster slot mismatches (IL/minors)")
+	checkRoster := flag.Bool("check-roster", true, "check for roster slot mismatches (IL/minors)")
 	flag.Parse()
 
 	today := time.Now().Truncate(24 * time.Hour)
-	dates, err := parseDates(*datesStr, today)
-	if err != nil {
-		log.Fatalf("invalid --dates: %v", err)
+
+	// Parse dates early for non-"all" cases; "all" needs the Fantrax client.
+	var dates []time.Time
+	needsSeasonLookup := *datesStr == "all"
+	if !needsSeasonLookup {
+		var err error
+		dates, err = parseDates(*datesStr, today)
+		if err != nil {
+			log.Fatalf("invalid --dates: %v", err)
+		}
 	}
 
 	cfg, err := config.Load(*dryRun, dates)
@@ -33,21 +40,39 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
-	log.Printf("dates=%s dry-run=%v", formatDates(cfg.Dates), cfg.DryRun)
-
 	// --- Fantrax client ---
 	ft, err := fantrax.NewClient(cfg.LeagueID, cfg.TeamID)
 	if err != nil {
 		log.Fatalf("fantrax client: %v", err)
 	}
 
+	// Resolve "all" now that the client is available.
+	if needsSeasonLookup {
+		start, end, err := ft.GetSeasonDateRange()
+		if err != nil {
+			log.Fatalf("get season date range: %v", err)
+		}
+		// Start from today (past dates are irrelevant for lineup setting).
+		if start.Before(today) {
+			start = today
+		}
+		for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+			cfg.Dates = append(cfg.Dates, d)
+		}
+		log.Printf("season range: %s to %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
+	}
+
+	log.Printf("dates=%s dry-run=%v", formatDates(cfg.Dates), cfg.DryRun)
+
 	// --- Roster alerts (if requested) ---
 	if *checkRoster {
-		fullRoster, err := ft.GetFullHitterRoster()
+		fullRoster, counts, err := ft.GetFullHitterRoster()
 		if err != nil {
 			log.Fatalf("get full roster: %v", err)
 		}
-		alerts := roster.CheckRoster(fullRoster)
+		counts.ILCapacity = cfg.ILSlots
+		counts.MinorsCapacity = cfg.MinorsSlots
+		alerts := roster.CheckRoster(fullRoster, counts)
 		if len(alerts) > 0 {
 			fmt.Println("\n=== Roster Alerts ===")
 			for _, a := range alerts {
@@ -183,8 +208,8 @@ func main() {
 			continue
 		}
 
-		if multiDate && !isToday {
-			fmt.Println("\n[DRY RUN] Future date — changes not applied.")
+		if !isToday {
+			fmt.Println("\n[SKIP] Not today — changes not applied.")
 			continue
 		}
 

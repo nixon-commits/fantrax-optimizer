@@ -104,12 +104,28 @@ func (c *Client) GetHitterRoster() ([]Player, error) {
 	return players, nil
 }
 
-// GetFullHitterRoster returns all hitters including IL and Minors slots.
-func (c *Client) GetFullHitterRoster() ([]Player, error) {
+// SlotCounts holds slot usage for IL and Minors roster sections (all players, not just hitters).
+type SlotCounts struct {
+	ILUsed         int
+	ILCapacity     int
+	MinorsUsed     int
+	MinorsCapacity int
+}
+
+// GetFullHitterRoster returns all hitters including IL and Minors slots,
+// plus slot usage counts (all players, not just hitters).
+// Capacity must be set externally via config (FANTRAX_IL_SLOTS, FANTRAX_MINORS_SLOTS).
+func (c *Client) GetFullHitterRoster() ([]Player, SlotCounts, error) {
+	var counts SlotCounts
+
 	roster, err := c.auth.GetCurrentPeriodTeamRosterInfo(c.teamID)
 	if err != nil {
-		return nil, fmt.Errorf("get team roster: %w", err)
+		return nil, SlotCounts{}, fmt.Errorf("get team roster: %w", err)
 	}
+
+	// Count used IL/Minors from the parsed roster (all players, not just hitters).
+	counts.ILUsed = len(roster.InjuredReserve)
+	counts.MinorsUsed = len(roster.MinorsRoster)
 
 	var all []models.RosterPlayer
 	all = append(all, roster.ActiveRoster...)
@@ -124,7 +140,7 @@ func (c *Client) GetFullHitterRoster() ([]Player, error) {
 		}
 		players = append(players, toPlayer(rp))
 	}
-	return players, nil
+	return players, counts, nil
 }
 
 // GetActiveSlots returns the ordered list of active hitter slots for the league.
@@ -258,6 +274,7 @@ func extractDate(dt string) string {
 	}
 	return t.Format("2006-01-02")
 }
+
 
 // EligibleForSlot returns true if the player's position IDs include the slot's position ID.
 // UT ("014") accepts all hitters.

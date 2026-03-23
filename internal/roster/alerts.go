@@ -20,7 +20,12 @@ type Alert struct {
 }
 
 // CheckRoster scans the full roster for players in the wrong slot.
-func CheckRoster(players []fantrax.Player) []Alert {
+// It suppresses "move to IL/Minors" alerts when the corresponding slots are full.
+// SlotCounts covers all players (hitters + pitchers), not just the hitters passed in.
+func CheckRoster(players []fantrax.Player, counts fantrax.SlotCounts) []Alert {
+	ilFull := counts.ILCapacity > 0 && counts.ILUsed >= counts.ILCapacity
+	minorsFull := counts.MinorsCapacity > 0 && counts.MinorsUsed >= counts.MinorsCapacity
+
 	var alerts []Alert
 	for _, p := range players {
 		switch p.Status {
@@ -41,14 +46,14 @@ func CheckRoster(players []fantrax.Player) []Alert {
 				})
 			}
 		case "Active", "Reserve":
-			if p.IsInjured {
+			if p.IsInjured && !ilFull {
 				alerts = append(alerts, Alert{
 					Player:     p,
 					Type:       InjuredInActive,
 					Suggestion: "move to IL",
 				})
 			}
-			if p.InMinors {
+			if p.InMinors && !minorsFull {
 				alerts = append(alerts, Alert{
 					Player:     p,
 					Type:       MinorInActive,

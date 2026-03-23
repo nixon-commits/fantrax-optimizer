@@ -3,18 +3,21 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	Username string
-	Password string
-	LeagueID string
-	TeamID   string
-	DryRun   bool
-	Dates    []time.Time
+	Username     string
+	Password     string
+	LeagueID     string
+	TeamID       string
+	DryRun       bool
+	Dates        []time.Time
+	ILSlots      int
+	MinorsSlots  int
 }
 
 func Load(dryRun bool, dates []time.Time) (*Config, error) {
@@ -22,12 +25,14 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 	_ = godotenv.Load()
 
 	cfg := &Config{
-		Username: os.Getenv("FANTRAX_USERNAME"),
-		Password: os.Getenv("FANTRAX_PASSWORD"),
-		LeagueID: os.Getenv("FANTRAX_LEAGUE_ID"),
-		TeamID:   os.Getenv("FANTRAX_TEAM_ID"),
-		DryRun:   dryRun,
-		Dates:    dates,
+		Username:    os.Getenv("FANTRAX_USERNAME"),
+		Password:    os.Getenv("FANTRAX_PASSWORD"),
+		LeagueID:    os.Getenv("FANTRAX_LEAGUE_ID"),
+		TeamID:      os.Getenv("FANTRAX_TEAM_ID"),
+		DryRun:      dryRun,
+		Dates:       dates,
+		ILSlots:     envInt("FANTRAX_IL_SLOTS", 0),
+		MinorsSlots: envInt("FANTRAX_MINORS_SLOTS", 0),
 	}
 
 	var missing []string
@@ -46,4 +51,16 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func envInt(key string, fallback int) int {
+	s := os.Getenv(key)
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return fallback
+	}
+	return v
 }

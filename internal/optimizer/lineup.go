@@ -32,12 +32,15 @@ func OptimizeLineup(
 ) Result {
 	scored := scoreRoster(roster, playingToday, projSrc, scoring)
 
-	// Sort for display (hasGame first, then by pts desc).
+	// Sort for display and backtracking (hasGame first, then by pts desc, then by ID for stability).
 	sort.Slice(scored, func(i, j int) bool {
 		if scored[i].HasGame != scored[j].HasGame {
 			return scored[i].HasGame
 		}
-		return scored[i].ExpectedPts > scored[j].ExpectedPts
+		if scored[i].ExpectedPts != scored[j].ExpectedPts {
+			return scored[i].ExpectedPts > scored[j].ExpectedPts
+		}
+		return scored[i].Player.ID < scored[j].Player.ID
 	})
 
 	// Build current assignment map: playerID → posID.
@@ -123,21 +126,14 @@ func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot, currentAssig
 		return bound
 	}
 
-	countChanges := func(assign []fantrax.PlayerSlot) int {
-		n := 0
-		for _, ps := range assign {
-			if ps.PlayerID != "" && currentAssign[ps.PlayerID] != ps.PosID {
-				n++
-			}
-		}
-		return n
-	}
+	const eps = 1e-9
 
-	var search func(slotIdx int, total float64)
-	search = func(slotIdx int, total float64) {
+	var search func(slotIdx int, total float64, changes int)
+	search = func(slotIdx int, total float64, changes int) {
 		if slotIdx == len(slots) {
-			changes := countChanges(candidate)
-			if total > bestTotal || (total == bestTotal && changes < bestChanges) {
+			better := total > bestTotal+eps
+			tied := math.Abs(total-bestTotal) <= eps
+			if better || (tied && changes < bestChanges) {
 				bestTotal = total
 				bestChanges = changes
 				bestAssign = make([]fantrax.PlayerSlot, len(candidate))
@@ -147,7 +143,13 @@ func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot, currentAssig
 		}
 
 		// Prune: even the best-case remaining can't beat current best.
-		if upperBound(slotIdx, total) < bestTotal {
+		if upperBound(slotIdx, total) < bestTotal-eps {
+			return
+		}
+
+		// Prune: score is tied with best but we already have as many or more changes.
+		ub := upperBound(slotIdx, total)
+		if math.Abs(ub-bestTotal) <= eps && changes >= bestChanges {
 			return
 		}
 
@@ -165,7 +167,11 @@ func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot, currentAssig
 				PlayerID: sp.Player.ID,
 				PosID:    slot.PosID,
 			}
-			search(slotIdx+1, total+effectivePts(sp))
+			isChange := 0
+			if currentAssign[sp.Player.ID] != slot.PosID {
+				isChange = 1
+			}
+			search(slotIdx+1, total+effectivePts(sp), changes+isChange)
 			used[i] = false
 			filled = true
 		}
@@ -173,11 +179,11 @@ func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot, currentAssig
 		// Allow leaving a slot empty if no eligible player found.
 		if !filled {
 			candidate[slotIdx] = fantrax.PlayerSlot{}
-			search(slotIdx+1, total)
+			search(slotIdx+1, total, changes)
 		}
 	}
 
-	search(0, 0)
+	search(0, 0, 0)
 	// Filter out empty assignments.
 	var result []fantrax.PlayerSlot
 	for _, ps := range bestAssign {

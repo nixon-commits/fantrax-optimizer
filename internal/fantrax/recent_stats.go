@@ -1,8 +1,10 @@
 package fantrax
 
 import (
+	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/pmurley/go-fantrax/models"
 	"golang.org/x/sync/errgroup"
@@ -50,6 +52,41 @@ func aggregateRecentStats(periods [][]models.RosterPlayer) map[string]RecentStat
 // GetCurrentPeriod returns the current Fantrax scoring period number.
 func (c *Client) GetCurrentPeriod() (int, error) {
 	return c.auth.GetCurrentPeriod()
+}
+
+// GetSeasonDateRange returns the first and last dates of the Fantrax season
+// by inspecting all scoring period matchups.
+func (c *Client) GetSeasonDateRange() (time.Time, time.Time, error) {
+	result, err := c.auth.GetAllMatchups()
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("get all matchups: %w", err)
+	}
+
+	var first, last time.Time
+	for _, m := range result.Matchups {
+		t, err := parseMatchupDate(m.Date)
+		if err != nil {
+			continue
+		}
+		if first.IsZero() || t.Before(first) {
+			first = t
+		}
+		if last.IsZero() || t.After(last) {
+			last = t
+		}
+	}
+	if first.IsZero() {
+		return time.Time{}, time.Time{}, fmt.Errorf("no scoring periods found")
+	}
+	// Last period date is the start of the last period; add 6 days as buffer.
+	// The MLB schedule API will naturally skip off-days.
+	last = last.AddDate(0, 0, 6)
+	return first, last, nil
+}
+
+// parseMatchupDate parses the date string from a Matchup (e.g. "Sat Apr 19, 2025").
+func parseMatchupDate(s string) (time.Time, error) {
+	return time.Parse("Mon Jan 2, 2006", s)
 }
 
 // GetRecentStats fetches roster data for the last numPeriods scoring periods
