@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Commands
 
 ```bash
@@ -14,6 +12,8 @@ go run ./cmd --dry-run --date 2026-04-01  # test a specific date
 
 Tests require no credentials — all network dependencies are mocked via interfaces or test servers.
 
+For local dev, create a `.env` file (gitignored) with `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`. Loaded automatically by `godotenv`.
+
 ## Architecture
 
 The optimizer runs as a single binary (`cmd/main.go`) that wires together four independent packages:
@@ -23,6 +23,8 @@ fantrax client  ──┐
 mlb schedule    ──┼──► optimizer ──► apply lineup (or dry-run print)
 fangraphs proj  ──┘
 ```
+
+**`internal/config`** — loads env vars via `godotenv`, validates that all four required vars are set, and returns a `Config` struct used by `cmd/main.go` to wire everything together.
 
 **`internal/fantrax`** — wraps `github.com/pmurley/go-fantrax` (public read API) and `go-fantrax/auth_client` (authenticated API + lineup writes). Key details:
 - `auth_client` uses chromedp (headless Chrome) to log in and obtain a session cookie. Cookie is cached in `.fantrax-cache/`. On first run or cache miss, a browser opens.
