@@ -18,6 +18,12 @@ type Config struct {
 	Dates        []time.Time
 	ILSlots      int
 	MinorsSlots  int
+
+	// Prospect report settings (all optional, with defaults).
+	ProspectRollingDays    int
+	ProspectMinGames       int
+	ProspectRankCacheHours int
+	ProspectRankThreshold  int
 }
 
 func Load(dryRun bool, dates []time.Time) (*Config, error) {
@@ -33,6 +39,11 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 		Dates:       dates,
 		ILSlots:     envInt("FANTRAX_IL_SLOTS", 0),
 		MinorsSlots: envInt("FANTRAX_MINORS_SLOTS", 0),
+
+		ProspectRollingDays:    envInt("PROSPECT_ROLLING_DAYS", 14),
+		ProspectMinGames:       envInt("PROSPECT_MIN_GAMES", 8),
+		ProspectRankCacheHours: envInt("PROSPECT_RANK_CACHE_HOURS", 168),
+		ProspectRankThreshold:  envInt("PROSPECT_UPGRADE_RANK_THRESHOLD", 20),
 	}
 
 	var missing []string

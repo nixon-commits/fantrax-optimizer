@@ -163,6 +163,46 @@ func (c *Client) GetFullHitterRoster() ([]Player, SlotCounts, error) {
 	return players, counts, nil
 }
 
+// GetMinorsRoster returns all players (hitters and pitchers) currently
+// in your Minors roster slot. Used by the prospect report.
+func (c *Client) GetMinorsRoster() ([]Player, error) {
+	roster, err := c.auth.GetCurrentPeriodTeamRosterInfo(c.teamID)
+	if err != nil {
+		return nil, fmt.Errorf("get minors roster: %w", err)
+	}
+	var players []Player
+	for _, rp := range roster.MinorsRoster {
+		players = append(players, toPlayer(rp))
+	}
+	return players, nil
+}
+
+// GetAvailableProspects returns minor-league-eligible players not owned
+// by any team in the league. Uses the Fantrax player pool API.
+func (c *Client) GetAvailableProspects() ([]Player, error) {
+	pool, err := c.auth.GetPlayerPool(
+		auth_client.WithStatusFilter(auth_client.StatusFilterAvailable),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get available prospects: %w", err)
+	}
+	var players []Player
+	for _, pp := range pool {
+		if !pp.MinorsEligible {
+			continue
+		}
+		players = append(players, Player{
+			ID:            pp.PlayerID,
+			Name:          pp.Name,
+			MLBTeam:       pp.MLBTeamShortName,
+			Positions:     pp.Positions,
+			PosShortNames: pp.PosShortNames,
+			InMinors:      true,
+		})
+	}
+	return players, nil
+}
+
 // GetActiveSlots returns the ordered list of active hitter slots for the league.
 func (c *Client) GetActiveSlots() ([]Slot, error) {
 	info, err := c.public.GetLeagueInfo(c.leagueID)
