@@ -21,6 +21,8 @@ func newStubProj(entries map[string]*projections.Projection) projections.Source 
 	return &stubProjection{data: entries}
 }
 
+const testDate = "2026-03-23"
+
 func TestOptimizeLineup_BasicRanking(t *testing.T) {
 	scoring := fantrax.ScoringWeights{
 		"H":   1.0,
@@ -31,16 +33,14 @@ func TestOptimizeLineup_BasicRanking(t *testing.T) {
 		"SB":  2.0,
 	}
 
-	// Star hitter: ~0.05 HR/game, good all-around
-	// Bench bat:   minimal stats
 	proj := newStubProj(map[string]*projections.Projection{
 		"Star Hitter": {G: 150, PA: 600, H: 160, HR: 30, RBI: 90, R: 90, BB: 60, SB: 15},
 		"Bench Bat":   {G: 50, PA: 200, H: 40, HR: 5, RBI: 20, R: 20, BB: 10, SB: 1},
 	})
 
 	roster := []fantrax.Player{
-		{ID: "p1", Name: "Star Hitter", MLBTeam: "NYY", Positions: []string{"002", "012", "014"}, Status: "Active"},
-		{ID: "p2", Name: "Bench Bat", MLBTeam: "BOS", Positions: []string{"002", "014"}, Status: "Reserve"},
+		{ID: "p1", Name: "Star Hitter", MLBTeam: "NYY", Positions: []string{"002", "012", "014"}, Status: "Active", NextGameDate: testDate},
+		{ID: "p2", Name: "Bench Bat", MLBTeam: "BOS", Positions: []string{"002", "014"}, Status: "Reserve", NextGameDate: testDate},
 	}
 
 	slots := []fantrax.Slot{
@@ -69,7 +69,7 @@ func TestOptimizeLineup_NoGame_BenchesPlayer(t *testing.T) {
 
 	roster := []fantrax.Player{
 		{ID: "p1", Name: "Active No Game", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Active"},
-		{ID: "p2", Name: "Reserve Has Game", MLBTeam: "BOS", Positions: []string{"012", "014"}, Status: "Reserve"},
+		{ID: "p2", Name: "Reserve Has Game", MLBTeam: "BOS", Positions: []string{"012", "014"}, Status: "Reserve", NextGameDate: testDate},
 	}
 
 	slots := []fantrax.Slot{
@@ -81,14 +81,12 @@ func TestOptimizeLineup_NoGame_BenchesPlayer(t *testing.T) {
 
 	result := OptimizeLineup(roster, playingToday, proj, scoring, slots)
 
-	// Reserve player with a game should be activated over better active player without a game.
 	if len(result.ToActivate) != 1 {
 		t.Fatalf("expected 1 activation, got %d", len(result.ToActivate))
 	}
 	if result.ToActivate[0].PlayerID != "p2" {
 		t.Errorf("expected Reserve Has Game (p2) activated, got %s", result.ToActivate[0].PlayerID)
 	}
-	// Active player without game should be benched.
 	if len(result.ToBench) != 1 || result.ToBench[0] != "p1" {
 		t.Errorf("expected p1 benched, got %v", result.ToBench)
 	}
@@ -103,8 +101,8 @@ func TestOptimizeLineup_PositionEligibility(t *testing.T) {
 	})
 
 	roster := []fantrax.Player{
-		{ID: "c1", Name: "Catcher", MLBTeam: "NYY", Positions: []string{"001", "014"}, Status: "Active"},
-		{ID: "of1", Name: "Outfielder", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Active"},
+		{ID: "c1", Name: "Catcher", MLBTeam: "NYY", Positions: []string{"001", "014"}, Status: "Active", NextGameDate: testDate},
+		{ID: "of1", Name: "Outfielder", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Active", NextGameDate: testDate},
 	}
 
 	slots := []fantrax.Slot{
@@ -116,11 +114,9 @@ func TestOptimizeLineup_PositionEligibility(t *testing.T) {
 
 	result := OptimizeLineup(roster, playingToday, proj, scoring, slots)
 
-	// Both should be activated in their correct positions.
 	if len(result.ToActivate) != 2 {
 		t.Fatalf("expected 2 activations, got %d", len(result.ToActivate))
 	}
-	// Verify catcher goes to C slot, outfielder to OF slot.
 	slotMap := make(map[string]string)
 	for _, ps := range result.ToActivate {
 		slotMap[ps.PlayerID] = ps.PosID
@@ -141,10 +137,9 @@ func TestOptimizeLineup_UtilFillsAnyHitter(t *testing.T) {
 	})
 
 	roster := []fantrax.Player{
-		{ID: "2b1", Name: "Second Baseman", MLBTeam: "CHC", Positions: []string{"003", "014"}, Status: "Reserve"},
+		{ID: "2b1", Name: "Second Baseman", MLBTeam: "CHC", Positions: []string{"003", "014"}, Status: "Reserve", NextGameDate: testDate},
 	}
 
-	// Only a UTIL slot — 2B should fill it.
 	slots := []fantrax.Slot{
 		{PosID: "014", PosName: "UTIL"},
 	}
@@ -159,20 +154,18 @@ func TestOptimizeLineup_UtilFillsAnyHitter(t *testing.T) {
 }
 
 func TestOptimizeLineup_BacktrackingBeatsGreedy(t *testing.T) {
-	// Greedy would assign PlayerA (6.0) to SS, leaving only PlayerC (5.0) for OF.
-	// Optimal: PlayerA→OF, PlayerB→SS = 6.0 + 5.5 = 11.5 vs greedy's 6.0 + 5.0 = 11.0.
 	scoring := fantrax.ScoringWeights{"HR": 1.0}
 
 	proj := newStubProj(map[string]*projections.Projection{
-		"PlayerA": {G: 100, PA: 400, HR: 600},  // 6.0 pts/g — eligible SS, OF
-		"PlayerB": {G: 100, PA: 400, HR: 550},  // 5.5 pts/g — eligible SS only
-		"PlayerC": {G: 100, PA: 400, HR: 500},  // 5.0 pts/g — eligible OF only
+		"PlayerA": {G: 100, PA: 400, HR: 600},
+		"PlayerB": {G: 100, PA: 400, HR: 550},
+		"PlayerC": {G: 100, PA: 400, HR: 500},
 	})
 
 	roster := []fantrax.Player{
-		{ID: "a", Name: "PlayerA", MLBTeam: "NYY", Positions: []string{"005", "012", "014"}, Status: "Reserve"},
-		{ID: "b", Name: "PlayerB", MLBTeam: "NYY", Positions: []string{"005", "014"}, Status: "Reserve"},
-		{ID: "c", Name: "PlayerC", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve"},
+		{ID: "a", Name: "PlayerA", MLBTeam: "NYY", Positions: []string{"005", "012", "014"}, Status: "Reserve", NextGameDate: testDate},
+		{ID: "b", Name: "PlayerB", MLBTeam: "NYY", Positions: []string{"005", "014"}, Status: "Reserve", NextGameDate: testDate},
+		{ID: "c", Name: "PlayerC", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve", NextGameDate: testDate},
 	}
 
 	slots := []fantrax.Slot{
@@ -184,7 +177,7 @@ func TestOptimizeLineup_BacktrackingBeatsGreedy(t *testing.T) {
 
 	result := OptimizeLineup(roster, playingToday, proj, scoring, slots)
 
-	slotMap := make(map[string]string) // playerID → posID
+	slotMap := make(map[string]string)
 	for _, ps := range result.ToActivate {
 		slotMap[ps.PlayerID] = ps.PosID
 	}
@@ -216,20 +209,20 @@ func (s *stubBlendedSource) GetPtsPerGame(name, _ string, _ fantrax.ScoringWeigh
 func TestOptimizeLineup_UsesBlendedPtsPerGame(t *testing.T) {
 	src := &stubBlendedSource{
 		projData: map[string]*projections.Projection{
-			"Player A": {G: 100, HR: 10}, // expectedPts with HR=4 would be 0.4
-			"Player B": {G: 100, HR: 20}, // expectedPts with HR=4 would be 0.8
+			"Player A": {G: 100, HR: 10},
+			"Player B": {G: 100, HR: 20},
 		},
 		ptsData: map[string]float64{
-			"Player A": 5.0, // blended overrides to 5.0
-			"Player B": 3.0, // blended overrides to 3.0
+			"Player A": 5.0,
+			"Player B": 3.0,
 		},
 	}
 
 	scoring := fantrax.ScoringWeights{"HR": 4.0}
 
 	roster := []fantrax.Player{
-		{ID: "a", Name: "Player A", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve"},
-		{ID: "b", Name: "Player B", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve"},
+		{ID: "a", Name: "Player A", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve", NextGameDate: testDate},
+		{ID: "b", Name: "Player B", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve", NextGameDate: testDate},
 	}
 
 	slots := []fantrax.Slot{{PosID: "012", PosName: "OF"}}
@@ -237,7 +230,6 @@ func TestOptimizeLineup_UsesBlendedPtsPerGame(t *testing.T) {
 
 	result := OptimizeLineup(roster, playingToday, src, scoring, slots)
 
-	// Player A should be chosen (5.0 > 3.0) even though Player B has more HR in Steamer
 	if len(result.Scored) < 2 {
 		t.Fatalf("expected 2 scored players, got %d", len(result.Scored))
 	}
@@ -249,17 +241,17 @@ func TestOptimizeLineup_UsesBlendedPtsPerGame(t *testing.T) {
 	}
 }
 
-func TestOptimizeLineup_ILPlayerNotActivated(t *testing.T) {
+func TestOptimizeLineup_NoNextGame_NotActivated(t *testing.T) {
 	scoring := fantrax.ScoringWeights{"HR": 4.0}
 
 	proj := newStubProj(map[string]*projections.Projection{
-		"IL Player":      {G: 150, PA: 600, HR: 40}, // best hitter but on IL
-		"Healthy Player": {G: 100, PA: 400, HR: 10},
+		"MLB Player":    {G: 100, PA: 400, HR: 10},
+		"Minor Leaguer": {G: 150, PA: 600, HR: 40},
 	})
 
 	roster := []fantrax.Player{
-		{ID: "il1", Name: "IL Player", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Injured Reserve"},
-		{ID: "h1", Name: "Healthy Player", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve"},
+		{ID: "mlb1", Name: "MLB Player", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve", NextGameDate: testDate},
+		{ID: "min1", Name: "Minor Leaguer", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve", NextGameDate: ""},
 	}
 
 	slots := []fantrax.Slot{{PosID: "012", PosName: "OF"}}
@@ -267,13 +259,12 @@ func TestOptimizeLineup_ILPlayerNotActivated(t *testing.T) {
 
 	result := OptimizeLineup(roster, playingToday, proj, scoring, slots)
 
-	if len(result.ToActivate) != 1 || result.ToActivate[0].PlayerID != "h1" {
-		t.Errorf("expected healthy player activated, got %+v", result.ToActivate)
+	if len(result.ToActivate) != 1 || result.ToActivate[0].PlayerID != "mlb1" {
+		t.Errorf("expected MLB player activated over player with no next game, got %+v", result.ToActivate)
 	}
 }
 
 func TestExpectedPts_Calculation(t *testing.T) {
-	// 150 games, 30 HR, 90 RBI, 120 singles
 	proj := &projections.Projection{
 		G:       150,
 		PA:      600,
