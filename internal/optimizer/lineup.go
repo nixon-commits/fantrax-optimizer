@@ -1,6 +1,7 @@
 package optimizer
 
 import (
+	"math"
 	"sort"
 
 	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
@@ -31,7 +32,7 @@ func OptimizeLineup(
 ) Result {
 	scored := scoreRoster(roster, playingToday, projSrc, scoring)
 
-	// Players with games first, then by expected pts descending.
+	// Sort for display (hasGame first, then by pts desc).
 	sort.Slice(scored, func(i, j int) bool {
 		if scored[i].HasGame != scored[j].HasGame {
 			return scored[i].HasGame
@@ -39,27 +40,32 @@ func OptimizeLineup(
 		return scored[i].ExpectedPts > scored[j].ExpectedPts
 	})
 
-	assigned := make(map[string]bool)
-	var toActivate []fantrax.PlayerSlot
+	// Use backtracking to find the assignment that maximizes total points.
+	toActivate := optimalAssignment(scored, slots)
 
-	for _, slot := range slots {
-		for _, sp := range scored {
-			if assigned[sp.Player.ID] {
-				continue
-			}
-			if !fantrax.EligibleForSlot(sp.Player.Positions, slot) {
-				continue
-			}
-			toActivate = append(toActivate, fantrax.PlayerSlot{
-				PlayerID: sp.Player.ID,
-				PosID:    slot.PosID,
-			})
-			assigned[sp.Player.ID] = true
-			break
+	// Build set of players in the optimal lineup.
+	assigned := make(map[string]bool)
+	for _, ps := range toActivate {
+		assigned[ps.PlayerID] = true
+	}
+
+	// Build current assignment map: playerID → posID.
+	current := make(map[string]string)
+	for _, p := range roster {
+		if p.Status == "Active" && p.RosterPosition != "" {
+			current[p.ID] = p.RosterPosition
 		}
 	}
 
-	// Anyone not assigned who was previously active gets benched.
+	// Only emit changes: activations where player isn't already in that slot.
+	var changedActivate []fantrax.PlayerSlot
+	for _, ps := range toActivate {
+		if current[ps.PlayerID] != ps.PosID {
+			changedActivate = append(changedActivate, ps)
+		}
+	}
+
+	// Bench players who are currently active but not in the optimal lineup.
 	var toBench []string
 	for _, p := range roster {
 		if p.Status == "Active" && !assigned[p.ID] {
@@ -68,10 +74,105 @@ func OptimizeLineup(
 	}
 
 	return Result{
-		ToActivate: toActivate,
+		ToActivate: changedActivate,
 		ToBench:    toBench,
 		Scored:     scored,
 	}
+}
+
+// effectivePts returns the points a player contributes to the lineup.
+// Players without a game today contribute 0 regardless of projection.
+func effectivePts(sp ScoredPlayer) float64 {
+	if !sp.HasGame {
+		return 0
+	}
+	return sp.ExpectedPts
+}
+
+// optimalAssignment uses backtracking to find the slot assignment
+// that maximizes total effective points across all slots.
+func optimalAssignment(scored []ScoredPlayer, slots []fantrax.Slot) []fantrax.PlayerSlot {
+	bestTotal := math.Inf(-1)
+	var bestAssign []fantrax.PlayerSlot
+
+	current := make([]fantrax.PlayerSlot, len(slots))
+	used := make(map[int]bool) // index into scored
+
+	// upperBound computes the max additional pts possible from remaining slots,
+	// assuming each gets the best available unused player (ignoring eligibility).
+	upperBound := func(slotIdx int, total float64) float64 {
+		bound := total
+		remaining := 0
+		for i := slotIdx; i < len(slots); i++ {
+			remaining++
+		}
+		avail := make([]float64, 0, remaining)
+		for i, sp := range scored {
+			if !used[i] {
+				avail = append(avail, effectivePts(sp))
+			}
+			if len(avail) >= remaining {
+				break
+			}
+		}
+		// scored is sorted by hasGame+pts desc, so avail is already in desc order.
+		for _, v := range avail {
+			bound += v
+		}
+		return bound
+	}
+
+	var search func(slotIdx int, total float64)
+	search = func(slotIdx int, total float64) {
+		if slotIdx == len(slots) {
+			if total > bestTotal {
+				bestTotal = total
+				bestAssign = make([]fantrax.PlayerSlot, len(current))
+				copy(bestAssign, current)
+			}
+			return
+		}
+
+		// Prune: even the best-case remaining can't beat current best.
+		if upperBound(slotIdx, total) <= bestTotal {
+			return
+		}
+
+		slot := slots[slotIdx]
+		filled := false
+		for i, sp := range scored {
+			if used[i] {
+				continue
+			}
+			if !fantrax.EligibleForSlot(sp.Player.Positions, slot) {
+				continue
+			}
+			used[i] = true
+			current[slotIdx] = fantrax.PlayerSlot{
+				PlayerID: sp.Player.ID,
+				PosID:    slot.PosID,
+			}
+			search(slotIdx+1, total+effectivePts(sp))
+			used[i] = false
+			filled = true
+		}
+
+		// Allow leaving a slot empty if no eligible player found.
+		if !filled {
+			current[slotIdx] = fantrax.PlayerSlot{}
+			search(slotIdx+1, total)
+		}
+	}
+
+	search(0, 0)
+	// Filter out empty assignments.
+	var result []fantrax.PlayerSlot
+	for _, ps := range bestAssign {
+		if ps.PlayerID != "" {
+			result = append(result, ps)
+		}
+	}
+	return result
 }
 
 func scoreRoster(

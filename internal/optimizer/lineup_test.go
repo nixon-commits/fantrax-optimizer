@@ -158,6 +158,45 @@ func TestOptimizeLineup_UtilFillsAnyHitter(t *testing.T) {
 	}
 }
 
+func TestOptimizeLineup_BacktrackingBeatsGreedy(t *testing.T) {
+	// Greedy would assign PlayerA (6.0) to SS, leaving only PlayerC (5.0) for OF.
+	// Optimal: PlayerA→OF, PlayerB→SS = 6.0 + 5.5 = 11.5 vs greedy's 6.0 + 5.0 = 11.0.
+	scoring := fantrax.ScoringWeights{"HR": 1.0}
+
+	proj := newStubProj(map[string]*projections.Projection{
+		"PlayerA": {G: 100, PA: 400, HR: 600},  // 6.0 pts/g — eligible SS, OF
+		"PlayerB": {G: 100, PA: 400, HR: 550},  // 5.5 pts/g — eligible SS only
+		"PlayerC": {G: 100, PA: 400, HR: 500},  // 5.0 pts/g — eligible OF only
+	})
+
+	roster := []fantrax.Player{
+		{ID: "a", Name: "PlayerA", MLBTeam: "NYY", Positions: []string{"005", "012", "014"}, Status: "Reserve"},
+		{ID: "b", Name: "PlayerB", MLBTeam: "NYY", Positions: []string{"005", "014"}, Status: "Reserve"},
+		{ID: "c", Name: "PlayerC", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve"},
+	}
+
+	slots := []fantrax.Slot{
+		{PosID: "005", PosName: "SS"},
+		{PosID: "012", PosName: "OF"},
+	}
+
+	playingToday := map[string]bool{"NYY": true}
+
+	result := OptimizeLineup(roster, playingToday, proj, scoring, slots)
+
+	slotMap := make(map[string]string) // playerID → posID
+	for _, ps := range result.ToActivate {
+		slotMap[ps.PlayerID] = ps.PosID
+	}
+
+	if slotMap["b"] != "005" {
+		t.Errorf("expected PlayerB in SS (005), got %s", slotMap["b"])
+	}
+	if slotMap["a"] != "012" {
+		t.Errorf("expected PlayerA in OF (012), got %s", slotMap["a"])
+	}
+}
+
 func TestExpectedPts_Calculation(t *testing.T) {
 	// 150 games, 30 HR, 90 RBI, 120 singles
 	proj := &projections.Projection{

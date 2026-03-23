@@ -100,6 +100,7 @@ func main() {
 	fmt.Println("\n=== Planned Lineup Changes ===")
 	if len(result.ToActivate) == 0 && len(result.ToBench) == 0 {
 		fmt.Println("No changes needed.")
+		os.Exit(0)
 	}
 
 	playerName := make(map[string]string)
