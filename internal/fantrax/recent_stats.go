@@ -89,6 +89,28 @@ func parseMatchupDate(s string) (time.Time, error) {
 	return time.Parse("Mon Jan 2, 2006", s)
 }
 
+// GetDateToPeriodMap returns a mapping from date (YYYY-MM-DD) to scoring period number.
+// For multi-day periods (e.g. "Wed Mar 25 - Thu Mar 26"), each day in the range is mapped.
+func (c *Client) GetDateToPeriodMap() (map[string]int, error) {
+	result, err := c.auth.GetAllMatchups()
+	if err != nil {
+		return nil, fmt.Errorf("get all matchups: %w", err)
+	}
+
+	dateToPeriod := make(map[string]int)
+	for _, m := range result.Matchups {
+		if m.ScoringPeriod == 0 {
+			continue
+		}
+		t, err := parseMatchupDate(m.Date)
+		if err != nil {
+			continue
+		}
+		dateToPeriod[t.Format("2006-01-02")] = m.ScoringPeriod
+	}
+	return dateToPeriod, nil
+}
+
 // GetRecentStats fetches roster data for the last numPeriods scoring periods
 // and aggregates per-player stats. Periods are fetched in parallel via errgroup.
 func (c *Client) GetRecentStats(currentPeriod, numPeriods int) (map[string]RecentStat, error) {

@@ -140,6 +140,12 @@ func main() {
 	multiDate := len(cfg.Dates) > 1
 	schedClient := schedule.NewClient()
 
+	// Build date→period map so we can set lineups for future dates.
+	dateToPeriod, err := ft.GetDateToPeriodMap()
+	if err != nil {
+		log.Printf("WARNING: could not build date-to-period map (%v) — only today's lineup can be set", err)
+	}
+
 	playerName := make(map[string]string)
 	for _, p := range hitterRoster {
 		playerName[p.ID] = p.Name
@@ -208,14 +214,18 @@ func main() {
 			continue
 		}
 
-		if !isToday {
-			fmt.Println("\n[SKIP] Not today — changes not applied.")
+		// --- Resolve period for this date ---
+		dateKey := date.Format("2006-01-02")
+		period, ok := dateToPeriod[dateKey]
+		if !ok && !isToday {
+			fmt.Printf("\n[SKIP] No scoring period found for %s — changes not applied.\n", dateKey)
 			continue
 		}
+		// period=0 tells the API to auto-detect current period (works for today).
 
 		// --- Apply ---
-		fmt.Println("\nApplying lineup...")
-		if err := ft.ApplyLineup(result.ToActivate, result.ToBench); err != nil {
+		fmt.Printf("\nApplying lineup for %s (period %d)...\n", dateKey, period)
+		if err := ft.ApplyLineup(period, result.ToActivate, result.ToBench); err != nil {
 			log.Fatalf("apply lineup: %v", err)
 		}
 		fmt.Println("Lineup applied successfully.")

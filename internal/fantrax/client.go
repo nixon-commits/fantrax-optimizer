@@ -191,9 +191,10 @@ func (c *Client) GetScoringWeights() (ScoringWeights, error) {
 	return weights, nil
 }
 
-// ApplyLineup sends the updated lineup to Fantrax.
-func (c *Client) ApplyLineup(active []PlayerSlot, reserve []string) error {
-	editor, err := c.auth.NewRosterEditor(0, c.teamID, false, true)
+// ApplyLineup sends the updated lineup to Fantrax for the given scoring period.
+// Pass 0 to auto-detect the current period.
+func (c *Client) ApplyLineup(period int, active []PlayerSlot, reserve []string) error {
+	editor, err := c.auth.NewRosterEditor(period, c.teamID, false, true)
 	if err != nil {
 		return fmt.Errorf("create roster editor: %w", err)
 	}
