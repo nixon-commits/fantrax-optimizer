@@ -15,11 +15,12 @@ import (
 type Player struct {
 	ID             string
 	Name           string
-	MLBTeam        string // short team name, e.g. "NYY"
+	MLBTeam        string   // short team name, e.g. "NYY"
 	Positions      []string // Fantrax position ID strings, e.g. ["001", "014"]
 	RosterPosition string   // slot they are currently in (position ID)
 	Status         string   // "Active", "Reserve", "Injured Reserve", "Minors"
 	NextGameDate   string   // "2026-03-22" or "" if no game found
+	InMinors       bool     // true if player is currently in the minor leagues (icon "4")
 }
 
 // Slot describes one active roster slot.
@@ -211,6 +212,7 @@ func toPlayer(rp models.RosterPlayer) Player {
 		RosterPosition: rp.RosterPosition,
 		Status:         rp.Status,
 		NextGameDate:   nextDate,
+		InMinors:       models.HasIcon(rp.Icons, models.IconMinorLeagues),
 	}
 }
 

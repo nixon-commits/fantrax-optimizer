@@ -264,6 +264,31 @@ func TestOptimizeLineup_NoNextGame_NotActivated(t *testing.T) {
 	}
 }
 
+func TestOptimizeLineup_MinorLeaguerOnReserve_NotActivated(t *testing.T) {
+	scoring := fantrax.ScoringWeights{"HR": 4.0}
+
+	proj := newStubProj(map[string]*projections.Projection{
+		"MLB Player":    {G: 100, PA: 400, HR: 10},
+		"Minor Leaguer": {G: 150, PA: 600, HR: 40},
+	})
+
+	// Minor leaguer overflowed from minors slots to Reserve.
+	// Has NextGameDate (Fantrax may show org's game) but InMinors=true.
+	roster := []fantrax.Player{
+		{ID: "mlb1", Name: "MLB Player", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve", NextGameDate: testDate},
+		{ID: "min1", Name: "Minor Leaguer", MLBTeam: "NYY", Positions: []string{"012", "014"}, Status: "Reserve", NextGameDate: testDate, InMinors: true},
+	}
+
+	slots := []fantrax.Slot{{PosID: "012", PosName: "OF"}}
+	playingToday := map[string]bool{"NYY": true}
+
+	result := OptimizeLineup(roster, playingToday, proj, scoring, slots)
+
+	if len(result.ToActivate) != 1 || result.ToActivate[0].PlayerID != "mlb1" {
+		t.Errorf("expected MLB player activated over minor leaguer on reserve, got %+v", result.ToActivate)
+	}
+}
+
 func TestExpectedPts_Calculation(t *testing.T) {
 	proj := &projections.Projection{
 		G:       150,
