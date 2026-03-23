@@ -1,3 +1,4 @@
 .env
 fantrax-optimizer
 *.test
+.claude/settings.local.json
