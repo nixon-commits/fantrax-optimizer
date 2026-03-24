@@ -31,7 +31,6 @@ type Projection struct {
 	HBP     float64
 	SO      float64
 	GIDP    float64
-	Bats    string // "R", "L", or "S" (switch)
 }
 
 // Source can look up a projection for a player.
@@ -57,12 +56,13 @@ type fgRow struct {
 	HBP        float64 `json:"HBP"`
 	SO         float64 `json:"SO"`
 	GIDP       float64 `json:"GDP"`
-	Bats       string  `json:"Bats"`
+	MLBAMID    int     `json:"xMLBAMID"`
 }
 
 // FanGraphsSource fetches Steamer projections from FanGraphs.
 type FanGraphsSource struct {
 	projections map[string]*Projection
+	mlbamIDs    map[string]int // NormalizeName(name) → MLBAM ID
 }
 
 // NewFanGraphsSource fetches and parses the FanGraphs batting projections JSON.
@@ -83,7 +83,10 @@ func NewFanGraphsSource() (*FanGraphsSource, error) {
 		return nil, fmt.Errorf("fangraphs json: %w", err)
 	}
 
-	src := &FanGraphsSource{projections: make(map[string]*Projection, len(rows))}
+	src := &FanGraphsSource{
+		projections: make(map[string]*Projection, len(rows)),
+		mlbamIDs:    make(map[string]int, len(rows)),
+	}
 	for _, row := range rows {
 		name := strings.TrimSpace(row.PlayerName)
 		team := strings.ToUpper(strings.TrimSpace(row.Team))
@@ -106,9 +109,11 @@ func NewFanGraphsSource() (*FanGraphsSource, error) {
 			HBP:     row.HBP,
 			SO:      row.SO,
 			GIDP:    row.GIDP,
-			Bats:    row.Bats,
 		}
 		src.projections[projKey(name, team)] = p
+		if row.MLBAMID > 0 {
+			src.mlbamIDs[NormalizeName(name)] = row.MLBAMID
+		}
 	}
 	return src, nil
 }
@@ -169,21 +174,9 @@ func NormalizeTeam(team string) string {
 	}
 }
 
-// HitterBats returns a map of NormalizeName(name) → bat side ("R", "L", "S").
-// Normalizes "B" (both) to "S" (switch).
-func (s *FanGraphsSource) HitterBats() map[string]string {
-	bats := make(map[string]string, len(s.projections))
-	for key, proj := range s.projections {
-		name := strings.SplitN(key, "|", 2)[0]
-		b := strings.ToUpper(proj.Bats)
-		if b == "B" {
-			b = "S"
-		}
-		if b == "R" || b == "L" || b == "S" {
-			bats[name] = b
-		}
-	}
-	return bats
+// MLBAMIDs returns a map of NormalizeName(name) → MLBAM player ID.
+func (s *FanGraphsSource) MLBAMIDs() map[string]int {
+	return s.mlbamIDs
 }
 
 func NormalizeName(name string) string {

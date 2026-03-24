@@ -15,12 +15,12 @@ func TestFanGraphsPitcherSource_PitcherInfo(t *testing.T) {
 				"SO": 220.0, "BB": 45.0, "H": 150.0, "ER": 60.0, "HR": 20.0,
 				"W": 14.0, "L": 7.0, "QS": 18.0, "SV": 0.0, "HLD": 0.0, "BS": 0.0,
 				"HBP": 5.0, "WP": 3.0, "BK": 0.0, "CG": 1.0, "SHO": 0.0, "PKO": 1.0,
-				"Throws": "R", "FIP": 2.80},
+				"FIP": 2.80, "xMLBAMID": 543037},
 			{"PlayerName": "Yusei Kikuchi", "Team": "LAA", "G": 28.0, "GS": 28.0, "IP": 160.0,
 				"SO": 180.0, "BB": 55.0, "H": 140.0, "ER": 70.0, "HR": 22.0,
 				"W": 10.0, "L": 9.0, "QS": 14.0, "SV": 0.0, "HLD": 0.0, "BS": 0.0,
 				"HBP": 4.0, "WP": 5.0, "BK": 1.0, "CG": 0.0, "SHO": 0.0, "PKO": 0.0,
-				"Throws": "L", "FIP": 4.20},
+				"FIP": 4.20, "xMLBAMID": 579328},
 		})
 	}))
 	defer srv.Close()
@@ -34,14 +34,8 @@ func TestFanGraphsPitcherSource_PitcherInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handedness, fip, avgFIP := src.PitcherInfo()
+	fip, avgFIP := src.PitcherInfo()
 
-	if handedness["gerrit cole"] != "R" {
-		t.Errorf("Cole handedness: got %q, want R", handedness["gerrit cole"])
-	}
-	if handedness["yusei kikuchi"] != "L" {
-		t.Errorf("Kikuchi handedness: got %q, want L", handedness["yusei kikuchi"])
-	}
 	if math.Abs(fip["gerrit cole"]-2.80) > 0.01 {
 		t.Errorf("Cole FIP: got %.2f, want 2.80", fip["gerrit cole"])
 	}
@@ -49,5 +43,13 @@ func TestFanGraphsPitcherSource_PitcherInfo(t *testing.T) {
 	wantAvg := (190.0*2.80 + 160.0*4.20) / (190.0 + 160.0)
 	if math.Abs(avgFIP-wantAvg) > 0.01 {
 		t.Errorf("avgFIP: got %.2f, want %.2f", avgFIP, wantAvg)
+	}
+
+	ids := src.MLBAMIDs()
+	if ids["gerrit cole"] != 543037 {
+		t.Errorf("Cole MLBAMID: got %d, want 543037", ids["gerrit cole"])
+	}
+	if ids["yusei kikuchi"] != 579328 {
+		t.Errorf("Kikuchi MLBAMID: got %d, want 579328", ids["yusei kikuchi"])
 	}
 }

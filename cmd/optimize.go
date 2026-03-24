@@ -211,11 +211,10 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Extract hitter handedness for matchup adjustments.
-	var hitterBats map[string]string
+	// Collect MLBAM IDs for handedness lookup.
+	var hitterMLBAMIDs map[string]int
 	if fgSrc != nil {
-		hitterBats = fgSrc.HitterBats()
-		log.Printf("hitter handedness loaded: %d players", len(hitterBats))
+		hitterMLBAMIDs = fgSrc.MLBAMIDs()
 	}
 
 	// --- Pitcher projections (shared across dates) ---
@@ -249,13 +248,35 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Extract pitcher handedness and FIP for matchup adjustments.
-	var pitcherHandedness map[string]string
+	// Extract pitcher FIP for matchup adjustments.
 	var pitcherFIP map[string]float64
 	var leagueAvgFIP float64
+	var pitcherMLBAMIDs map[string]int
 	if fgPitSrc != nil {
-		pitcherHandedness, pitcherFIP, leagueAvgFIP = fgPitSrc.PitcherInfo()
-		log.Printf("pitcher info loaded: %d handedness, %d FIP, league avg FIP=%.2f", len(pitcherHandedness), len(pitcherFIP), leagueAvgFIP)
+		pitcherFIP, leagueAvgFIP = fgPitSrc.PitcherInfo()
+		pitcherMLBAMIDs = fgPitSrc.MLBAMIDs()
+		log.Printf("pitcher info loaded: %d FIP, league avg FIP=%.2f", len(pitcherFIP), leagueAvgFIP)
+	}
+
+	// Fetch handedness from MLB Stats API using MLBAM IDs from FanGraphs.
+	var hitterBats map[string]string
+	var pitcherHandedness map[string]string
+	allMLBAMIDs := make(map[string]int)
+	for k, v := range hitterMLBAMIDs {
+		allMLBAMIDs[k] = v
+	}
+	for k, v := range pitcherMLBAMIDs {
+		allMLBAMIDs[k] = v
+	}
+	if len(allMLBAMIDs) > 0 {
+		bats, throws, err := projections.FetchMLBHandedness(allMLBAMIDs)
+		if err != nil {
+			log.Printf("WARNING: MLB handedness unavailable (%v) — matchup adjustments disabled", err)
+		} else {
+			hitterBats = bats
+			pitcherHandedness = throws
+			log.Printf("handedness loaded: %d hitter bats, %d pitcher throws", len(hitterBats), len(pitcherHandedness))
+		}
 	}
 
 	multiDate := len(cfg.Dates) > 1
