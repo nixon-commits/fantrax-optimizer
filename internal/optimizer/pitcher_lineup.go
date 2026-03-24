@@ -231,12 +231,4 @@ func isSPEligible(positions []string) bool {
 	return false
 }
 
-func isRPEligible(positions []string) bool {
-	for _, pos := range positions {
-		if pos == auth_client.PosRP { // "016"
-			return true
-		}
-	}
-	return false
-}
 

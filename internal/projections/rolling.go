@@ -22,7 +22,7 @@ func NewRollingSource() *RollingSource {
 func (s *RollingSource) AddPlayer(
 	name string,
 	gamesPlayed int,
-	h, doubles, triples, hr, rbi, r, bb, sb, cs, hbp float64,
+	h, doubles, triples, hr, rbi, r, bb, sb, cs, hbp, so, gidp float64,
 ) {
 	if gamesPlayed <= 0 {
 		return
@@ -41,6 +41,8 @@ func (s *RollingSource) AddPlayer(
 		SB:      sb * scale,
 		CS:      cs * scale,
 		HBP:     hbp * scale,
+		SO:      so * scale,
+		GIDP:    gidp * scale,
 	}
 }
 

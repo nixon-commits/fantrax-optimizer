@@ -65,10 +65,11 @@ var pitcherPosIDs = map[string]bool{
 
 // Client wraps the go-fantrax libraries.
 type Client struct {
-	public   *gofantrax.Client
-	auth     *auth_client.Client
-	leagueID string
-	teamID   string
+	public     *gofantrax.Client
+	auth       *auth_client.Client
+	leagueID   string
+	teamID     string
+	leagueInfo *gofantrax.LeagueInfo // cached league info
 }
 
 // NewClient creates both the public (read) and auth (read+write) Fantrax clients.
@@ -93,6 +94,19 @@ func NewClient(leagueID, teamID string) (*Client, error) {
 		leagueID: leagueID,
 		teamID:   teamID,
 	}, nil
+}
+
+// getLeagueInfo returns cached league info, fetching it on first call.
+func (c *Client) getLeagueInfo() (*gofantrax.LeagueInfo, error) {
+	if c.leagueInfo != nil {
+		return c.leagueInfo, nil
+	}
+	info, err := c.getLeagueInfo()
+	if err != nil {
+		return nil, err
+	}
+	c.leagueInfo = info
+	return info, nil
 }
 
 // GetHitterRoster returns all hitters on the team (active + reserve; excludes IL/minors).
@@ -244,7 +258,7 @@ func (c *Client) GetMinorsEligiblePool() ([]ProspectPoolPlayer, error) {
 
 // GetActiveSlots returns the ordered list of active hitter slots for the league.
 func (c *Client) GetActiveSlots() ([]Slot, error) {
-	info, err := c.public.GetLeagueInfo(c.leagueID)
+	info, err := c.getLeagueInfo()
 	if err != nil {
 		return nil, fmt.Errorf("get league info: %w", err)
 	}
@@ -271,7 +285,7 @@ func (c *Client) GetActiveSlots() ([]Slot, error) {
 
 // GetScoringWeights returns hitting stat short-names → point values.
 func (c *Client) GetScoringWeights() (ScoringWeights, error) {
-	info, err := c.public.GetLeagueInfo(c.leagueID)
+	info, err := c.getLeagueInfo()
 	if err != nil {
 		return nil, fmt.Errorf("get league info: %w", err)
 	}

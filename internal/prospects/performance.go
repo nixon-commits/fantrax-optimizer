@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -193,9 +194,15 @@ func parseIP(s string) float64 {
 	if s == "" {
 		return 0
 	}
-	var ip float64
-	fmt.Sscanf(s, "%f", &ip)
-	return ip
+	// MLB notation: "6.1" means 6 full innings + 1 out = 6.333 IP.
+	// The decimal part is outs (0-2), not a fractional value.
+	parts := strings.SplitN(s, ".", 2)
+	full, _ := strconv.Atoi(parts[0])
+	outs := 0
+	if len(parts) == 2 {
+		outs, _ = strconv.Atoi(parts[1])
+	}
+	return float64(full) + float64(outs)/3.0
 }
 
 // ---------------------------------------------------------------------------

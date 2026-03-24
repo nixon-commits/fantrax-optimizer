@@ -52,11 +52,13 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	}
 
 	// Resolve "all" now that the client is available.
+	var seasonStart time.Time // used later for period calculation
 	if needsSeasonLookup {
 		start, end, err := ft.GetSeasonDateRange()
 		if err != nil {
 			return fmt.Errorf("get season date range: %w", err)
 		}
+		seasonStart = start
 		if start.Before(today) {
 			start = today
 		}
@@ -201,9 +203,14 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	schedClient := schedule.NewClient()
 
 	// Get season start date for period calculation.
-	seasonStart, _, err := ft.GetSeasonDateRange()
-	if err != nil {
-		log.Printf("WARNING: could not get season start (%v) — only today's lineup can be set", err)
+	// If we already fetched the season range for --dates all, reuse seasonStart from above.
+	if !needsSeasonLookup {
+		s, _, err := ft.GetSeasonDateRange()
+		if err != nil {
+			log.Printf("WARNING: could not get season start (%v) — only today's lineup can be set", err)
+		} else {
+			seasonStart = s
+		}
 	}
 
 	// Build name/slot lookup maps for display.

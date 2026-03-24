@@ -232,43 +232,6 @@ func scoreRoster(
 }
 
 // expectedPts converts a season projection to expected fantasy points per game.
-// Handles derived stats: 1B (if not projected directly), XBH, TB.
 func expectedPts(proj *projections.Projection, scoring fantrax.ScoringWeights) float64 {
-	if proj.G <= 0 {
-		return 0
-	}
-
-	// Derive stats that may not be directly in the projection.
-	singles := proj.Singles
-	if singles == 0 && proj.H > 0 {
-		singles = proj.H - proj.Doubles - proj.Triples - proj.HR
-	}
-	xbh := proj.Doubles + proj.Triples + proj.HR
-	tb := singles + 2*proj.Doubles + 3*proj.Triples + 4*proj.HR
-
-	statMap := map[string]float64{
-		"1B":   singles,
-		"2B":   proj.Doubles,
-		"3B":   proj.Triples,
-		"HR":   proj.HR,
-		"RBI":  proj.RBI,
-		"R":    proj.R,
-		"BB":   proj.BB,
-		"SB":   proj.SB,
-		"CS":   proj.CS,
-		"HBP":  proj.HBP,
-		"SO":   proj.SO,
-		"GIDP": proj.GIDP,
-		"XBH":  xbh,
-		"TB":   tb,
-	}
-
-	var total float64
-	for stat, seasonVal := range statMap {
-		if pts, ok := scoring[stat]; ok {
-			perGame := seasonVal / proj.G
-			total += perGame * pts
-		}
-	}
-	return total
+	return projections.ExpectedPtsFromProj(proj, scoring)
 }

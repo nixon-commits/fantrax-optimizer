@@ -5,8 +5,9 @@ import (
 )
 
 const (
-	steamerWeight = 0.60
-	recentWeight  = 0.40
+	steamerWeight       = 0.60
+	recentWeight        = 0.40
+	minGPForHitterBlend = 4 // require at least 4 games before blending recent stats
 )
 
 // PtsPerGameSource can provide a pre-computed points-per-game value.
@@ -45,7 +46,7 @@ func (b *BlendedSource) GetPtsPerGame(name, mlbTeam string, scoring fantrax.Scor
 		return 0, false
 	}
 
-	steamerPts := expectedPtsFromProj(proj, scoring)
+	steamerPts := ExpectedPtsFromProj(proj, scoring)
 
 	playerID, idOK := b.nameToID[NormalizeName(name)]
 	if !idOK {
@@ -53,7 +54,7 @@ func (b *BlendedSource) GetPtsPerGame(name, mlbTeam string, scoring fantrax.Scor
 	}
 
 	recent, statOK := b.recent[playerID]
-	if !statOK || recent.GamesPlayed == 0 {
+	if !statOK || recent.GamesPlayed < minGPForHitterBlend {
 		return steamerPts, true
 	}
 
@@ -61,9 +62,9 @@ func (b *BlendedSource) GetPtsPerGame(name, mlbTeam string, scoring fantrax.Scor
 	return steamerWeight*steamerPts + recentWeight*recentPtsPerGame, true
 }
 
-// expectedPtsFromProj computes per-game fantasy points from a projection.
-// Duplicates optimizer.expectedPts logic to avoid circular import.
-func expectedPtsFromProj(proj *Projection, scoring fantrax.ScoringWeights) float64 {
+// ExpectedPtsFromProj computes per-game fantasy points from a projection.
+// This is the canonical implementation; optimizer.expectedPts delegates here.
+func ExpectedPtsFromProj(proj *Projection, scoring fantrax.ScoringWeights) float64 {
 	if proj.G <= 0 {
 		return 0
 	}

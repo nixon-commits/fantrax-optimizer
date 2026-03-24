@@ -79,7 +79,7 @@ func TestChainedSource_FallsThrough(t *testing.T) {
 	}}
 
 	rolling := NewRollingSource()
-	rolling.AddPlayer("mystery player", 14, 2.0, 0.5, 0.1, 0.3, 1.5, 1.2, 1.0, 0.3, 0.0, 0.1)
+	rolling.AddPlayer("mystery player", 14, 2.0, 0.5, 0.1, 0.3, 1.5, 1.2, 1.0, 0.3, 0.0, 0.1, 1.5, 0.2)
 
 	chained := NewChainedSource(primary, rolling)
 

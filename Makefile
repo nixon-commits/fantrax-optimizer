@@ -5,6 +5,7 @@ build:
 
 install:
 	go install .
+	"$$(go env GOPATH)/bin/rosterbot" completion zsh > "$${HOMEBREW_PREFIX:-/usr/local}/share/zsh/site-functions/_rosterbot"
 
 test:
 	go test ./internal/...

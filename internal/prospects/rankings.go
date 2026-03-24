@@ -283,9 +283,8 @@ func FindUpgrades(rostered, available []RankedProspect, currentYear string) []Up
 
 			var gap int
 			if drop.Rank == 0 {
-				// Unranked rostered: any ranked FA is an upgrade
-				gap = add.Rank // use rank as proxy (lower is better, so we want a positive signal)
-				// For unranked, gap = 101 - add.Rank to make higher ranked better
+				// Unranked rostered: any ranked FA is an upgrade.
+				// Higher ranked (lower number) = bigger gap.
 				gap = 101 - add.Rank
 			} else {
 				gap = drop.Rank - add.Rank

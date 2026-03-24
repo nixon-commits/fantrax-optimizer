@@ -49,7 +49,7 @@ func (c *Client) GetPitcherRosterForPeriod(period int) ([]Player, error) {
 
 // GetPitcherSlots returns the ordered list of active pitcher slots for the league.
 func (c *Client) GetPitcherSlots() ([]Slot, error) {
-	info, err := c.public.GetLeagueInfo(c.leagueID)
+	info, err := c.getLeagueInfo()
 	if err != nil {
 		return nil, fmt.Errorf("get league info: %w", err)
 	}
@@ -76,7 +76,7 @@ func (c *Client) GetPitcherSlots() ([]Slot, error) {
 
 // GetPitcherScoringWeights returns pitching stat short-names → point values.
 func (c *Client) GetPitcherScoringWeights() (ScoringWeights, error) {
-	info, err := c.public.GetLeagueInfo(c.leagueID)
+	info, err := c.getLeagueInfo()
 	if err != nil {
 		return nil, fmt.Errorf("get league info: %w", err)
 	}

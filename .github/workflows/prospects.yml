@@ -8,6 +8,7 @@ on:
 jobs:
   prospect-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v5
@@ -24,7 +25,6 @@ jobs:
         run: |
           output=$(go run . prospects 2>&1) || true
           echo "$output"
-          echo "$output" >> "$GITHUB_STEP_SUMMARY"
 
           high_alerts=$(echo "$output" | grep '^\[HIGH' || true)
           if [ -n "$high_alerts" ]; then
