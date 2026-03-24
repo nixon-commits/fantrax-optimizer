@@ -2,9 +2,11 @@
 
 ## Overview
 
-A new `internal/prospects` package that monitors minor league players across three dimensions — **call-up news & transactions**, **MiLB performance breakouts**, and **Fantrax roster eligibility changes** — and surfaces a daily prospect report in the GitHub Actions job summary.
+A new `internal/prospects` package that monitors minor league players (**both hitters and pitchers**) across three dimensions — **call-up news & transactions**, **MiLB performance breakouts**, and **Fantrax roster eligibility changes** — and surfaces a daily prospect report in the GitHub Actions job summary.
 
-Data comes from **MLB Stats API** (transactions, rosters, game logs) and **FanGraphs** (prospect rankings/lists). Alerts appear as a new `=== Prospect Report ===` section in the daily GHA run, between roster alerts and the hitter ranking.
+Data comes from **MLB Stats API** (transactions, rosters, game logs) and **FanGraphs** (prospect rankings/lists, behind an interface for source swappability). Alerts appear as a new `=== Prospect Report ===` section in the daily GHA run, between roster alerts and the hitter ranking.
+
+> **Audit note:** This plan covers both hitter and pitcher prospects. SP prospect call-ups are among the highest-value alerts in fantasy baseball and must not be omitted.
 
 ---
 
@@ -69,18 +71,43 @@ Relevant transaction type codes:
 ### 2. MLB Stats API — MiLB Player Stats & Game Logs (free, no auth)
 
 **Endpoint:** `https://statsapi.mlb.com/api/v1/people/{playerId}/stats?stats=gameLog&group=hitting&season=2026&sportId=11,12,13,14`
+**Pitchers:** Same endpoint with `group=pitching` for K/9, ERA, WHIP tracking.
 
 Sport IDs: `11` = Triple-A, `12` = Double-A, `13` = High-A, `14` = Single-A.
 
-**What we extract:** Last 14 days of game logs for hitters on your Minors roster. Compute rolling batting line (AVG, OPS, HR, SB) and compare to season line. Flag significant breakouts (e.g., 14-day OPS > season OPS + 0.150).
+**What we extract:** Last 14 days of game logs for prospects on your Minors roster. For hitters: compute rolling batting line (AVG, OPS, HR, SB) and compare to season line. For pitchers: compute rolling K/9, ERA, WHIP and compare to season line. Flag significant breakouts with **level-adjusted thresholds** and a **minimum 8-game sample**.
 
-### 3. FanGraphs Prospect Rankings (scrape/API)
+**Breakout thresholds (hitters, by level):**
+- AAA: 14-day OPS > season OPS + 0.150
+- AA: 14-day OPS > season OPS + 0.200
+- A-ball: 14-day OPS > season OPS + 0.250
+
+**Breakout thresholds (pitchers, by level):**
+- AAA: 14-day ERA < season ERA - 1.00, or K/9 > season K/9 + 2.0
+- AA: 14-day ERA < season ERA - 1.50, or K/9 > season K/9 + 2.5
+- A-ball: 14-day ERA < season ERA - 2.00, or K/9 > season K/9 + 3.0
+
+**Cold streak thresholds:** Only surface for top-50 ranked prospects. Hitters: -0.200 OPS delta. Pitchers: +1.50 ERA delta.
+
+> **Audit note:** Minimum 8 games in the rolling window required before any alert fires. This prevents false positives from small samples (a single 4-hit game can skew 10-game windows).
+
+### 3. Prospect Rankings — MLB Pipeline (primary) + FanGraphs (fallback)
+
+Rankings are fetched behind a `RankingSource` interface so sources can be swapped.
+
+**Primary: MLB Pipeline Top Prospects (free, no auth)**
+
+**Endpoint:** `https://statsapi.mlb.com/api/v1/prospects?season=2026&topN=100`
+
+MLB's Stats API publishes the official MLB Pipeline Top 100 prospect list as JSON. Free, stable, no authentication required — same API family as the schedule and transaction endpoints we already use.
+
+**Fallback: FanGraphs Prospect Rankings (unstable, may require FG+ auth)**
 
 **Endpoint:** `https://www.fangraphs.com/api/prospects/board/prospect-list?type=prospects&pos=all`
 
-FanGraphs publishes prospect rankings as JSON. We'll fetch the top-100 list and cache it (rankings don't change daily — refresh weekly).
+> **Warning:** The FanGraphs prospect board endpoint is **not a stable public API** and may require FanGraphs+ authentication. Used as a fallback only if MLB Pipeline is unavailable. Handle 403/401 responses explicitly.
 
-**What we extract:** Rank, player name, team, FV (future value), ETA, key tools/grades. Cross-reference against your Fantrax Minors roster to annotate which of your prospects are ranked and how highly.
+**What we extract:** Rank, player name, team, ETA, position. Cross-reference against your Fantrax Minors roster to annotate which of your prospects are ranked and how highly. Cross-reference against available free agents to find upgrade opportunities.
 
 ---
 
@@ -153,7 +180,7 @@ type RankedProspect struct {
 
 ```go
 // New flag
-prospects := flag.Bool("prospects", true, "run minor league prospect report")
+prospects := flag.Bool("prospects", false, "run minor league prospect report")
 
 // After roster alerts, before lineup optimization:
 if *prospects {
@@ -189,7 +216,12 @@ if *prospects {
 The existing `fantrax.Player` struct already has `InMinors bool` and `Status string`. We need:
 
 - **Player ID mapping**: The `fantrax.Player.Name` needs to be fuzzy-matched against MLB Stats API player names. We'll reuse `projections.NormalizeName()` and add MLB player ID lookup via the Stats API search endpoint.
-- **New method on fantrax.Client**: `GetMinorsRoster() ([]Player, error)` — filters `GetFullHitterRoster()` to only Minors-status players. (Simple convenience wrapper.)
+- **New method on fantrax.Client**: `GetMinorsRoster() ([]Player, error)` — filters both hitter and pitcher rosters to only Minors-status players.
+
+> **Audit warning: Player name matching is the single biggest failure risk.** Cross-referencing players across Fantrax, MLB Stats API, and FanGraphs via name + team is fragile. Hispanic multi-surnames, Jr./II suffixes, transliteration differences, and MiLB affiliate vs. parent org mismatches will cause silent failures. Mitigations:
+> - Make `player-ids.json` cache manually editable for hand-correcting persistent mismatches
+> - Add a match confidence score and log unmatched players loudly (never silently skip)
+> - Use Fantrax player ID as a secondary lookup key if available
 
 ### MLB Stats API player ID resolution
 
@@ -254,11 +286,25 @@ func FindUpgrades(
 
 ### Threshold configuration
 
+> **Audit recommendation: Use FV-tier-based thresholds instead of a flat rank gap.** Prospect rankings are not linear in talent — the gap between #5 and #25 is enormous while #75 vs #95 is negligible. Prefer FanGraphs Future Value (FV) directly, as a gap of one FV tier (e.g., 45→55) is always meaningful regardless of ranking position.
+
+**Tiered threshold approach (recommended over flat threshold):**
+
+| Prospect rank range | Minimum rank gap to trigger alert |
+|---------------------|----------------------------------|
+| Top 10 | 5 (any top-10 FA available is worth grabbing) |
+| 11-50 | 15 |
+| 51-100 | 25 |
+| Below 100 / unranked | Any ranked FA triggers alert |
+
+**Alternative: FV-based threshold** — trigger when available FA's FV exceeds rostered prospect's FV by ≥ 1 tier (5 points). This is more stable than rank ordinals which shift with list updates.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROSPECT_UPGRADE_RANK_THRESHOLD` | `20` | Minimum FG rank gap to trigger an upgrade alert. E.g., if set to 20, a #50-ranked FA won't trigger a swap for your #60 prospect, but a #35-ranked FA will. |
+| `PROSPECT_UPGRADE_RANK_THRESHOLD` | `20` | Fallback flat threshold if FV data unavailable |
+| `PROSPECT_UPGRADE_USE_FV` | `true` | Prefer FV-tier comparison over rank ordinals |
 
-**Why a threshold?** Without it, the system would nag about every marginal 1-2 spot difference. A gap of 20+ ranks represents a meaningful talent difference worth the roster churn. You can tune this down to 10 for aggressive management or up to 30+ for a more conservative approach.
+**Why a threshold?** Without it, the system would nag about every marginal 1-2 spot difference. The tiered approach ensures alerts are calibrated to the actual talent gap at each level of the ranking.
 
 ### Special cases
 
@@ -269,6 +315,8 @@ func FindUpgrades(
 **ETA awareness:** Upgrades are annotated with the FanGraphs ETA field. A swap from an ETA-2028 prospect to an ETA-2026 prospect carries extra weight — the report marks these with a "near-term" tag since the new prospect could contribute to your MLB roster sooner.
 
 ### Free agent detection
+
+> **Audit warning: GATING RISK.** The `go-fantrax` library does not appear to expose a free agent search/filter endpoint. Before designing the upgrade engine around this method, verify that `go-fantrax/auth_client` supports player search. If not, options: (a) contribute the endpoint to `go-fantrax`, or (b) use the authenticated client's raw HTTP capabilities to hit the Fantrax player search API directly (same pattern as `ApplyLineup`). **Scope this investigation before committing to the upgrade feature.**
 
 New method needed on the Fantrax client:
 
@@ -341,9 +389,11 @@ _Threshold: upgrades shown when rank gap ≥ 20. Adjust via `PROSPECT_UPGRADE_RA
 
 | File | Refresh Interval | Contents |
 |------|-----------------|----------|
-| `player-ids.json` | Permanent (IDs don't change) | `{"normalized_name\|team": mlbID}` |
+| `player-ids.json` | Permanent (IDs don't change); manually editable for corrections | `{"normalized_name\|team": mlbID}` |
 | `rankings.json` | Weekly | FanGraphs top prospect list + fetch timestamp |
-| `last-transactions.json` | Daily | Last processed transaction date to avoid re-alerting |
+| `last-transactions.json` | Cursor-based (see below) | Last processed transaction date to avoid re-alerting |
+
+> **Audit improvement:** Instead of a fixed lookback window, `last-transactions.json` stores the last-processed transaction date. Each run scans from that date forward, making the system resilient to missed GHA runs. On first run (no cache), defaults to 7-day lookback.
 
 ---
 
@@ -353,11 +403,13 @@ _Threshold: upgrades shown when rank gap ≥ 20. Adjust via `PROSPECT_UPGRADE_RA
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROSPECT_LOOKBACK_DAYS` | `3` | How many days of MLB transactions to scan |
-| `PROSPECT_HOT_OPS_DELTA` | `0.150` | OPS increase over season avg to trigger "hot" alert |
+| `PROSPECT_LOOKBACK_DAYS` | `7` | Initial lookback on first run (subsequent runs use cursor) |
+| `PROSPECT_HOT_OPS_DELTA` | `0.150` | OPS increase over season avg to trigger "hot" alert (AAA; scales by level) |
 | `PROSPECT_ROLLING_DAYS` | `14` | Window for rolling performance stats |
+| `PROSPECT_MIN_GAMES` | `8` | Minimum games in rolling window before alerts fire |
 | `PROSPECT_RANK_CACHE_HOURS` | `168` (7 days) | How long to cache FanGraphs rankings |
-| `PROSPECT_UPGRADE_RANK_THRESHOLD` | `20` | Minimum FG rank gap to recommend a prospect swap |
+| `PROSPECT_UPGRADE_RANK_THRESHOLD` | `20` | Fallback flat rank gap (used when FV data unavailable) |
+| `PROSPECT_UPGRADE_USE_FV` | `true` | Prefer FV-tier comparison over rank ordinals |
 
 These go into `internal/config/config.go` as optional fields on `Config`, defaulting if not set.
 
@@ -370,10 +422,12 @@ Add `GITHUB_STEP_SUMMARY` output and ensure the prospect report runs:
   run: go run ./cmd --prospects
   env:
     # ... existing secrets ...
-    GITHUB_STEP_SUMMARY: ${{ github.step_summary }}  # already available by default
+    # Note: $GITHUB_STEP_SUMMARY is already available — do NOT pass it explicitly
 ```
 
 No new secrets required — MLB Stats API and FanGraphs prospects are public.
+
+> **Audit suggestion:** Consider a second, lighter-weight afternoon run (e.g., 8pm UTC / 4pm ET) with a `--transactions-only` flag that skips performance and ranking checks. This catches same-day call-ups before other fantasy managers can react.
 
 ---
 
@@ -384,9 +438,9 @@ All tests are unit tests with no network dependencies, consistent with the rest 
 | Test file | What it covers |
 |-----------|---------------|
 | `transactions_test.go` | Parse mock transaction JSON; filter by type codes; match against roster |
-| `performance_test.go` | Compute rolling stats from mock game logs; detect breakouts and slumps |
+| `performance_test.go` | Compute rolling stats from mock game logs; detect breakouts and slumps; verify min-game filter; test level-adjusted thresholds |
 | `rankings_test.go` | Parse mock FanGraphs JSON; cross-reference against roster |
-| `upgrades_test.go` | Threshold logic, unranked-player handling, ETA tagging, dedup, capacity limits |
+| `upgrades_test.go` | Tiered threshold logic, FV-based comparison, unranked-player handling, ETA tagging, dedup, capacity limits |
 | `monitor_test.go` | End-to-end: mock all sources → verify Report contents and dedup |
 | `report_test.go` | Verify markdown formatting and GHA summary output |
 | `cache_test.go` | Read/write/expiry logic for file-based cache |
@@ -397,43 +451,72 @@ Mock data lives in `internal/prospects/testdata/`. HTTP endpoints are overridden
 
 ## Implementation Order
 
+### Phase 0: Feasibility check (GATING)
+0. **Verify `GetAvailableProspects` API feasibility** — investigate whether `go-fantrax/auth_client` supports player search/filter. If not, scope the effort to add it. This gates Phase 3.
+
 ### Phase 1: Foundation (transactions + roster cross-reference)
-1. Create `internal/prospects/` package scaffold
-2. Implement `transactions.go` — MLB Stats API transaction fetcher
-3. Implement `cache.go` — file-based JSON cache
+1. Create `internal/prospects/` package scaffold with `RankingSource` interface
+2. Implement `transactions.go` — MLB Stats API transaction fetcher (hitters AND pitchers)
+3. Implement `cache.go` — file-based JSON cache with cursor-based transaction tracking
 4. Implement `monitor.go` — orchestrator with just transaction alerts
 5. Implement `report.go` — console + GHA summary formatting
-6. Wire into `cmd/main.go` with `--prospects` flag
+6. Wire into `cmd/main.go` with `--prospects` flag (default: false)
 7. Unit tests for Phase 1
 
 ### Phase 2: Performance monitoring
-8. Implement MLB player ID resolution + caching
-9. Implement `performance.go` — MiLB game log fetcher + breakout detection
-10. Add performance alerts to `monitor.go`
+8. Implement MLB player ID resolution + caching (manually editable cache)
+9. Implement `performance.go` — MiLB game log fetcher + breakout detection for **both hitters and pitchers**
+   - Level-adjusted thresholds (AAA/AA/A-ball)
+   - Minimum 8-game sample filter
+   - Pitcher metrics: K/9, ERA, WHIP
+10. Add performance alerts to `monitor.go`; parallelize per-player fetches with `errgroup` + semaphore (3-5 concurrency)
 11. Unit tests for Phase 2
 
 ### Phase 3: External rankings + upgrade recommendations
-12. Implement `rankings.go` — FanGraphs prospect list fetcher
+12. Implement `rankings.go` behind `RankingSource` interface — FanGraphs prospect list fetcher with 403/401 error handling
 13. Add ranking annotations and `FreeAgentBuzz` alerts
 14. Add "Your Prospect Rankings" table to report
-15. Implement `upgrades.go` — compare rostered prospects vs. available FAs
-16. Add `GetAvailableProspects()` to Fantrax client (unowned minor leaguers)
+15. Implement `upgrades.go` — FV-tier-based comparison with tiered rank thresholds as fallback
+16. Add `GetAvailableProspects()` to Fantrax client (unowned minor leaguers) — **depends on Phase 0 feasibility**
 17. Add "Prospect Upgrade Recommendations" table to report
-18. Unit tests for Phase 3 (including upgrade threshold logic and edge cases)
+18. Unit tests for Phase 3 (including tiered threshold logic, FV comparison, and edge cases)
 
 ### Phase 4: Polish & deploy
 19. Add new config fields + env var defaults
-20. Update GHA workflow
-21. Update CLAUDE.md with new commands and package docs
-22. End-to-end testing with `--dry-run --prospects`
+20. Update GHA workflow (add `--prospects` flag; consider afternoon `--transactions-only` run)
+21. Unify prospect call-up alerts with existing roster alert system to avoid duplicate notifications
+22. Update CLAUDE.md with new commands and package docs
+23. End-to-end testing with `--dry-run --prospects`
 
 ---
 
 ## Estimated Effort
 
-- **Phase 1:** ~3-4 files, ~400 lines — the core loop
-- **Phase 2:** ~2 files, ~300 lines — stat computation
-- **Phase 3:** ~3-4 files, ~400 lines — rankings, upgrades engine, FA pool query
-- **Phase 4:** ~config + docs, ~100 lines
+- **Phase 0:** ~1 day investigation — API feasibility
+- **Phase 1:** ~3-4 files, ~500 lines — the core loop (hitters + pitchers)
+- **Phase 2:** ~2 files, ~400 lines — stat computation with level-adjusted thresholds
+- **Phase 3:** ~3-4 files, ~500 lines — rankings interface, FV-based upgrades, FA pool query
+- **Phase 4:** ~config + docs + alert unification, ~150 lines
 
-Total: **~1,200 lines of new code** across ~10-12 new files, plus ~200 lines of test code per phase.
+Total: **~1,550 lines of new code** across ~12-14 new files, plus ~250 lines of test code per phase.
+
+---
+
+## Strategic Audit Notes
+
+This plan was audited by the fantasy-baseball-strategist agent on 2026-03-23. Key changes incorporated:
+
+1. **Pitcher prospect coverage added** — SP call-ups are highest-value fantasy alerts
+2. **Level-adjusted breakout thresholds** with minimum 8-game sample requirement
+3. **FV-tier-based upgrade thresholds** instead of flat rank gap
+4. **RankingSource interface** for FanGraphs source swappability
+5. **Cursor-based transaction tracking** instead of fixed lookback window
+6. **Player name matching warnings** with manual cache editing support
+7. **GetAvailableProspects API feasibility** flagged as Phase 0 gating work
+8. **`--prospects` flag defaults to false** for better DX
+9. **Afternoon transaction-only run** suggested for competitive edge
+
+### Future considerations (not in scope for v1)
+- **Service time manipulation detection** — flag top prospects dominating AAA but not called up
+- **Injury replacement call-up prediction** — cross-reference MLB IL transactions with org prospect depth
+- **Automatic roster moves** — optimizer acts on prospect call-up alerts (move from Minors to Active)
