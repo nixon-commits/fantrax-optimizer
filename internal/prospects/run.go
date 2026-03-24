@@ -79,7 +79,7 @@ func RunProspectReport(ft *fantrax.Client, cfg config.Config, today time.Time) e
 	g := new(errgroup.Group)
 
 	g.Go(func() error {
-		source := NewChainedRankingSource(&MLBPipelineSource{}, &FanGraphsRankingSource{})
+		source := NewChainedRankingSource(&FantraxRankingSource{Client: ft}, &FanGraphsRankingSource{})
 		r, err := LoadRankings(source, today.Year(), cfg.ProspectRankCacheHours)
 		if err != nil {
 			return fmt.Errorf("loading rankings: %w", err)

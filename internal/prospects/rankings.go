@@ -12,11 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
 	"github.com/nixon-commits/fantrax-optimizer/internal/projections"
 )
-
-// mlbPipelineURL is a var so tests can override it.
-var mlbPipelineURL = "https://statsapi.mlb.com/api/v1/prospects?season=%d&topN=100"
 
 // fgProspectURL is a var so tests can override it.
 var fgProspectURL = "https://www.fangraphs.com/api/prospects/board/prospect-list?type=prospects&pos=all"
@@ -26,60 +24,47 @@ var fgProspectURL = "https://www.fangraphs.com/api/prospects/board/prospect-list
 var ErrSourceUnavailable = errors.New("ranking source unavailable")
 
 // ---------------------------------------------------------------------------
-// 1. MLBPipelineSource
+// 1. FantraxRankingSource
 // ---------------------------------------------------------------------------
 
-// MLBPipelineSource fetches prospect rankings from the MLB Stats API.
-type MLBPipelineSource struct{}
+// FantraxRankingSource ranks minors-eligible players from the Fantrax player pool
+// by %Rostered descending. This provides a fantasy-community-derived prospect ranking.
+type FantraxRankingSource struct {
+	Client *fantrax.Client
+}
 
-func (s *MLBPipelineSource) GetTopProspects(season int) ([]RankedProspect, error) {
-	url := fmt.Sprintf(mlbPipelineURL, season)
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(url)
+func (s *FantraxRankingSource) GetTopProspects(season int) ([]RankedProspect, error) {
+	pool, err := s.Client.GetMinorsEligiblePool()
 	if err != nil {
-		return nil, fmt.Errorf("mlb pipeline fetch: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("mlb pipeline: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("fantrax prospect pool: %w", err)
 	}
 
-	var body struct {
-		Prospects struct {
-			Prospects []struct {
-				Person struct {
-					ID       int    `json:"id"`
-					FullName string `json:"fullName"`
-				} `json:"person"`
-				Rank            int `json:"rank"`
-				PrimaryPosition struct {
-					Abbreviation string `json:"abbreviation"`
-				} `json:"primaryPosition"`
-				CurrentTeam struct {
-					Abbreviation string `json:"abbreviation"`
-				} `json:"currentTeam"`
-				ProjectedMLBDebut string `json:"projectedMLBDebut"`
-				CurrentLevel      string `json:"currentLevel"`
-			} `json:"prospects"`
-		} `json:"prospects"`
+	// Sort by %Rostered descending (most rostered = highest ranked prospect).
+	sort.SliceStable(pool, func(i, j int) bool {
+		if pool[i].PercentRostered != pool[j].PercentRostered {
+			return pool[i].PercentRostered > pool[j].PercentRostered
+		}
+		return pool[i].FantasyPtsPerG > pool[j].FantasyPtsPerG
+	})
+
+	// Take top 100 (or fewer).
+	limit := 100
+	if len(pool) < limit {
+		limit = len(pool)
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return nil, fmt.Errorf("mlb pipeline json: %w", err)
-	}
-
-	result := make([]RankedProspect, 0, len(body.Prospects.Prospects))
-	for _, p := range body.Prospects.Prospects {
-		pos := p.PrimaryPosition.Abbreviation
+	result := make([]RankedProspect, 0, limit)
+	for i := 0; i < limit; i++ {
+		p := pool[i]
+		if p.PercentRostered == 0 && p.FantasyPtsPerG == 0 {
+			break // no point ranking completely unknown players
+		}
+		pos := p.PosShortNames
 		result = append(result, RankedProspect{
-			Name:      projections.NormalizeName(p.Person.FullName),
-			MLBTeam:   projections.NormalizeTeam(p.CurrentTeam.Abbreviation),
-			MLBID:     p.Person.ID,
+			Name:      projections.NormalizeName(p.Name),
+			MLBTeam:   projections.NormalizeTeam(p.MLBTeam),
 			Position:  pos,
-			Rank:      p.Rank,
-			ETA:       p.ProjectedMLBDebut,
-			Level:     p.CurrentLevel,
+			Rank:      i + 1,
 			IsPitcher: isPitcherPosition(pos),
 		})
 	}

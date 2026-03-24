@@ -177,6 +177,13 @@ func (c *Client) GetMinorsRoster() ([]Player, error) {
 	return players, nil
 }
 
+// ProspectPoolPlayer extends Player with fantasy ranking data from the Fantrax player pool.
+type ProspectPoolPlayer struct {
+	Player
+	PercentRostered float64
+	FantasyPtsPerG  float64
+}
+
 // GetAvailableProspects returns minor-league-eligible players not owned
 // by any team in the league. Uses the Fantrax player pool API.
 func (c *Client) GetAvailableProspects() ([]Player, error) {
@@ -198,6 +205,36 @@ func (c *Client) GetAvailableProspects() ([]Player, error) {
 			Positions:     pp.Positions,
 			PosShortNames: pp.PosShortNames,
 			InMinors:      true,
+		})
+	}
+	return players, nil
+}
+
+// GetMinorsEligiblePool returns all minors-eligible players (rostered and available)
+// with fantasy ranking data. Used by the prospect ranking system.
+func (c *Client) GetMinorsEligiblePool() ([]ProspectPoolPlayer, error) {
+	pool, err := c.auth.GetPlayerPool(
+		auth_client.WithStatusFilter(auth_client.StatusFilterAll),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get minors eligible pool: %w", err)
+	}
+	var players []ProspectPoolPlayer
+	for _, pp := range pool {
+		if !pp.MinorsEligible {
+			continue
+		}
+		players = append(players, ProspectPoolPlayer{
+			Player: Player{
+				ID:            pp.PlayerID,
+				Name:          pp.Name,
+				MLBTeam:       pp.MLBTeamShortName,
+				Positions:     pp.Positions,
+				PosShortNames: pp.PosShortNames,
+				InMinors:      true,
+			},
+			PercentRostered: pp.PercentRostered,
+			FantasyPtsPerG:  pp.FantasyPointsPerG,
 		})
 	}
 	return players, nil

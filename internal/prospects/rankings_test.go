@@ -11,78 +11,8 @@ import (
 	"time"
 )
 
-// --- MLBPipelineSource ---
-
-func TestMLBPipelineSource_ParsesResponse(t *testing.T) {
-	fixture := map[string]any{
-		"prospects": map[string]any{
-			"prospects": []map[string]any{
-				{
-					"person": map[string]any{
-						"id":       12345,
-						"fullName": "Jackson Holliday",
-					},
-					"rank":              1,
-					"primaryPosition":   map[string]any{"abbreviation": "SS"},
-					"currentTeam":       map[string]any{"abbreviation": "BAL"},
-					"projectedMLBDebut": "2026",
-					"currentLevel":      "AAA",
-				},
-				{
-					"person": map[string]any{
-						"id":       67890,
-						"fullName": "Paul Skenes",
-					},
-					"rank":              2,
-					"primaryPosition":   map[string]any{"abbreviation": "SP"},
-					"currentTeam":       map[string]any{"abbreviation": "PIT"},
-					"projectedMLBDebut": "2025",
-					"currentLevel":      "MLB",
-				},
-			},
-		},
-	}
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(fixture)
-	}))
-	defer srv.Close()
-
-	origURL := mlbPipelineURL
-	mlbPipelineURL = srv.URL + "?season=%d&topN=100"
-	defer func() { mlbPipelineURL = origURL }()
-
-	src := &MLBPipelineSource{}
-	prospects, err := src.GetTopProspects(2026)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(prospects) != 2 {
-		t.Fatalf("expected 2 prospects, got %d", len(prospects))
-	}
-
-	p := prospects[0]
-	if p.Name != "jackson holliday" {
-		t.Errorf("expected normalized name 'jackson holliday', got %q", p.Name)
-	}
-	if p.MLBTeam != "BAL" {
-		t.Errorf("expected team BAL, got %q", p.MLBTeam)
-	}
-	if p.MLBID != 12345 {
-		t.Errorf("expected MLBID 12345, got %d", p.MLBID)
-	}
-	if p.Position != "SS" {
-		t.Errorf("expected position SS, got %q", p.Position)
-	}
-	if p.Rank != 1 {
-		t.Errorf("expected rank 1, got %d", p.Rank)
-	}
-
-	p2 := prospects[1]
-	if !p2.IsPitcher {
-		t.Error("expected SP to be marked as pitcher")
-	}
-}
+// --- FantraxRankingSource uses a live client, tested via integration ---
+// Unit tests focus on the pure functions and interface contracts.
 
 // --- FanGraphsRankingSource ---
 
