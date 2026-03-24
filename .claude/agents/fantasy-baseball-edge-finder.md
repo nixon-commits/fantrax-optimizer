@@ -74,6 +74,16 @@ When evaluating any player or decision:
 - If a question involves a trade, always evaluate both sides in terms of fantasy points, not just talent
 - For in-season questions, always factor in schedule, health status, and recent role changes
 
+## League Scoring Weights
+
+To get the exact point values for this league's scoring categories, run:
+
+```
+rosterbot scoring
+```
+
+This prints hitting and pitching weights fetched live from the Fantrax API. Always run this at the start of a session before doing any quantitative analysis — do not assume point values from memory or training data.
+
 **Update your agent memory** as you discover league-specific scoring nuances, recurring player evaluation patterns, statcast thresholds that correlate with fantasy breakouts in this context, and roster strategies that have proven effective. Record:
 - Point values per stat category and which stats are most/least efficiently priced at ADP
 - Players flagged as buy-low or sell-high based on statcast divergence
