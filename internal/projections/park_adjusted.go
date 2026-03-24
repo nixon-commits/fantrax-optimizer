@@ -121,13 +121,18 @@ func computeParkAdjustment(proj *Projection, pf ParkFactors, scoring fantrax.Sco
 		"HR": pf.HR, "R": pf.R, "RBI": pf.R,
 		"BB": pf.BB, "SO": pf.SO,
 		"SB": 1.0, "CS": 1.0, "HBP": 1.0, "GIDP": 1.0,
-		"XBH": (pf.H2B + pf.H3B + pf.HR) / 3.0,
+		"XBH": 1.0,
 		"TB":  1.0,
 	}
 
 	// TB factor is a weighted blend of component hit type factors.
 	if tb > 0 {
 		statFactor["TB"] = (singles*pf.H1B + 2*proj.Doubles*pf.H2B + 3*proj.Triples*pf.H3B + 4*proj.HR*pf.HR) / tb
+	}
+
+	// XBH factor is a player-weighted blend of doubles/triples/HR park factors.
+	if xbh > 0 {
+		statFactor["XBH"] = (proj.Doubles*pf.H2B + proj.Triples*pf.H3B + proj.HR*pf.HR) / xbh
 	}
 
 	statMap := map[string]float64{

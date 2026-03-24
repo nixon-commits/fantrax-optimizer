@@ -11,7 +11,7 @@ func TestParkAdjustedSource_CoorsBoost(t *testing.T) {
 	inner := &stubSource{proj: map[string]*Projection{
 		"test player": {G: 100, H: 100, Singles: 60, Doubles: 20, Triples: 5, HR: 15, RBI: 50, R: 40, BB: 30, SO: 80},
 	}}
-	scoring := fantrax.ScoringWeights{"HR": 4.0, "1B": 1.0, "2B": 2.0, "3B": 3.0, "R": 1.0, "RBI": 1.0, "BB": 1.0, "SO": -1.0}
+	scoring := fantrax.ScoringWeights{"HR": 4.0, "1B": 1.0, "2B": 2.0, "3B": 3.0, "R": 1.0, "RBI": 1.0, "BB": 1.0, "SO": -1.0, "XBH": 1.0, "TB": 1.0}
 
 	// Coors-like park factors.
 	parkFactors := map[string]ParkFactors{
@@ -21,7 +21,7 @@ func TestParkAdjustedSource_CoorsBoost(t *testing.T) {
 
 	src := NewParkAdjustedSource(inner, parkFactors, venues)
 
-	basePts, _ := ExpectedPtsFromProj(inner.proj["test player"], scoring), true
+	basePts := ExpectedPtsFromProj(inner.proj["test player"], scoring)
 	adjPts, ok := src.GetPtsPerGame("Test Player", "NYY", scoring)
 	if !ok {
 		t.Fatal("expected true")
@@ -29,6 +29,18 @@ func TestParkAdjustedSource_CoorsBoost(t *testing.T) {
 	// Coors should boost the projection.
 	if adjPts <= basePts {
 		t.Errorf("expected Coors boost: adj=%.4f should be > base=%.4f", adjPts, basePts)
+	}
+
+	// Player has Doubles=20, Triples=5, HR=15 (xbh=40).
+	// Coors: H2B=1.19, H3B=2.02, HR=1.06.
+	// Player-weighted XBH factor = (20*1.19 + 5*2.02 + 15*1.06) / 40 = 49.8/40 = 1.245.
+	// Old simple average = (1.19 + 2.02 + 1.06) / 3 = 1.4233.
+	// The adjustment ratio with weighted XBH ≈ 1.2686; with simple average ≈ 1.2852.
+	// adjPts should be basePts * ~1.2686 (weighted), NOT basePts * ~1.2852 (simple avg).
+	expectedAdjPts := basePts * 1.2686
+	if math.Abs(adjPts-expectedAdjPts) > 0.01 {
+		t.Errorf("XBH factor should use player-weighted formula: adjPts=%.4f, want ~%.4f (weighted); simple-avg would give ~%.4f",
+			adjPts, expectedAdjPts, basePts*1.2852)
 	}
 }
 
