@@ -546,9 +546,13 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 
 		// --- Hitter lines ---
 		var hLines []string
+		var hGreen []bool // parallel: true = render line in green (minor leaguer)
 		hLines = append(hLines, "Hitters "+strings.Repeat("─", colL-8))
+		hGreen = append(hGreen, false)
 		hLines = append(hLines, "  "+padRight("Player", 19)+" "+padRight("Team", 4)+" "+fmt.Sprintf("%6s", "Pts/G")+" "+padRight("Slot", 4)+" Game")
+		hGreen = append(hGreen, false)
 		hLines = append(hLines, strings.Repeat("─", colL))
+		hGreen = append(hGreen, false)
 
 		var hitterStartingPts float64
 		var hActive, hBench []optimizer.ScoredPlayer
@@ -576,9 +580,11 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				padRight(sp.Player.MLBTeam, 4) + " " + fmt.Sprintf("%6.2f", sp.ExpectedPts) +
 				" " + padRight(slot, 4) + " " + game
 			hLines = append(hLines, line)
+			hGreen = append(hGreen, sp.Player.InMinors)
 		}
 		if len(hBench) > 0 {
 			hLines = append(hLines, strings.Repeat("·", colL))
+			hGreen = append(hGreen, false)
 			for _, sp := range hBench {
 				game := " "
 				if sp.HasGame {
@@ -588,14 +594,19 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 					padRight(sp.Player.MLBTeam, 4) + " " + fmt.Sprintf("%6.2f", sp.ExpectedPts) +
 					" " + padRight("", 4) + " " + game
 				hLines = append(hLines, line)
+				hGreen = append(hGreen, sp.Player.InMinors)
 			}
 		}
 
 		// --- Pitcher lines ---
 		var pLines []string
+		var pGreen []bool // parallel: true = render line in green (minor leaguer)
 		pLines = append(pLines, "Pitchers "+strings.Repeat("─", colR-9))
+		pGreen = append(pGreen, false)
 		pLines = append(pLines, "  "+padRight("Player", 19)+" "+padRight("Team", 4)+" "+fmt.Sprintf("%6s", "Pts/G")+" "+padRight("Slot", 4)+" "+padRight("Pos", 4)+" Game")
+		pGreen = append(pGreen, false)
 		pLines = append(pLines, strings.Repeat("─", colR))
+		pGreen = append(pGreen, false)
 
 		var pitcherStartingPts float64
 		var pActive, pBench []optimizer.ScoredPitcher
@@ -630,9 +641,11 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				padRight(sp.Player.MLBTeam, 4) + " " + fmt.Sprintf("%6.2f", sp.ExpectedPts) + " " +
 				padRight(slot, 4) + " " + padRight(role, 4) + " " + game
 			pLines = append(pLines, line)
+			pGreen = append(pGreen, sp.Player.InMinors)
 		}
 		if len(pBench) > 0 {
 			pLines = append(pLines, strings.Repeat("·", colR))
+			pGreen = append(pGreen, false)
 			for _, sp := range pBench {
 				role := sp.Player.PosShortNames
 				if role == "" {
@@ -649,33 +662,50 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 					padRight(sp.Player.MLBTeam, 4) + " " + fmt.Sprintf("%6.2f", sp.ExpectedPts) + " " +
 					padRight("", 4) + " " + padRight(role, 4) + " " + game
 				pLines = append(pLines, line)
+				pGreen = append(pGreen, sp.Player.InMinors)
 			}
 		}
 		// Pad data sections to same height so totals align.
 		for len(hLines) < len(pLines) {
 			hLines = append(hLines, "")
+			hGreen = append(hGreen, false)
 		}
 		for len(pLines) < len(hLines) {
 			pLines = append(pLines, "")
+			pGreen = append(pGreen, false)
 		}
 
 		// Append footer lines (separator + total) — now on the same row.
 		hLines = append(hLines, strings.Repeat("─", colL))
+		hGreen = append(hGreen, false)
 		hLines = append(hLines, "  "+padRight("Total", 19)+" "+padRight("", 4)+" "+fmt.Sprintf("%6.2f", hitterStartingPts))
+		hGreen = append(hGreen, false)
 
 		pLines = append(pLines, strings.Repeat("─", colR))
+		pGreen = append(pGreen, false)
 		pLines = append(pLines, "  "+padRight("Total", 19)+" "+padRight("", 4)+" "+fmt.Sprintf("%6.2f", pitcherStartingPts))
+		pGreen = append(pGreen, false)
 		if gsBudget != nil {
 			remaining := gsBudget.Remaining()
 			hLines = append(hLines, "")
+			hGreen = append(hGreen, false)
 			pLines = append(pLines, fmt.Sprintf("GS: %d/%d used (%d rem, %.1f future)",
 				gsBudget.Used, gsBudget.Limit, remaining, gsBudget.FutureDemand()))
+			pGreen = append(pGreen, false)
 		}
 
 		// Print side by side.
 		fmt.Println()
 		for i := range hLines {
-			fmt.Printf("  %s │ %s\n", padRight(hLines[i], colL), padRight(pLines[i], colR))
+			left := padRight(hLines[i], colL)
+			right := padRight(pLines[i], colR)
+			if hGreen[i] {
+				left = "\033[32m" + left + "\033[0m"
+			}
+			if pGreen[i] {
+				right = "\033[32m" + right + "\033[0m"
+			}
+			fmt.Printf("  %s │ %s\n", left, right)
 		}
 
 		// Combined total.

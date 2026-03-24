@@ -5,8 +5,8 @@ import (
 )
 
 const (
-	steamerWeight       = 0.60
-	recentWeight        = 0.40
+	steamerWeight       = 0.70
+	recentWeight        = 0.30
 	minGPForHitterBlend = 4 // require at least 4 games before blending recent stats
 )
 

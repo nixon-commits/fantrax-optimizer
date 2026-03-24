@@ -73,6 +73,17 @@ func OptimizePitcherLineup(
 		})
 	}
 
+	// Sort by effective (discounted) pts desc. optimalAssignment's upper-bound
+	// pruning assumes the input is in descending effective-pts order; without
+	// this re-sort, discounted SPs appear before full-value RPs and the pruner
+	// underestimates reachable scores, skipping the optimal branch.
+	sort.Slice(generic, func(i, j int) bool {
+		if generic[i].ExpectedPts != generic[j].ExpectedPts {
+			return generic[i].ExpectedPts > generic[j].ExpectedPts
+		}
+		return generic[i].Player.ID < generic[j].Player.ID
+	})
+
 	// Build current assignment map.
 	currentAssign := make(map[string]string)
 	for _, p := range roster {
