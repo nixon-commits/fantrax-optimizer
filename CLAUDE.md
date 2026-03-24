@@ -1,12 +1,14 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 ## Commands
 
 ```bash
-go build ./...          # build all packages
-go test ./internal/...  # run all unit tests (no network required)
+make build              # build all packages (or: go build ./...)
+make test               # run all unit tests (or: go test ./internal/...)
 go test ./internal/optimizer/...  # run a specific package's tests
-go run ./cmd --dry-run  # run locally without applying changes
+make dry-run            # run locally without applying changes
 go run ./cmd --dry-run --dates 2026-04-01  # test a specific date
 go run ./cmd --dry-run --dates 2026-03-26:2026-03-28  # test a date range
 go run ./cmd --dry-run --dates all  # test full season from today
@@ -41,15 +43,21 @@ fangraphs proj  ──┘
 - **Scoring periods are daily** (period 1 = season opener). Period number = `1 + days since season start`. Matchup data from `GetAllMatchups()` has weekly matchup entries, not daily — don't use it for period lookup.
 - **Future lineup apply** requires a two-step confirmation flow: first API call returns a confirmation prompt (`ShowConfirmWindow=true`), second call with the same payload applies the changes. Handled in `ApplyLineup`.
 
-**`internal/projections`** — FanGraphs Steamer projections (primary) with rolling-stats fallback chained via `ChainedSource`. FanGraphs returns **JSON** (not CSV); player name field is `PlayerName`. The `Projection` struct includes derived stats (`Singles`, `XBH`, `TB`) that must be computed from raw fields before scoring.
+**`internal/projections`** — FanGraphs Steamer projections (primary) with rolling-stats fallback chained via `ChainedSource`. FanGraphs returns **JSON** (not CSV); player name field is `PlayerName`. The `Projection` struct includes derived stats (`Singles`, `XBH`, `TB`) that must be computed from raw fields before scoring. Separate `Source` (hitters) and `PitcherSource` (pitchers) interfaces.
 
-**Blended scoring** — `BlendedSource` in `projections/blended.go` wraps Steamer with recent Fantrax stats (last 10 scoring periods). Formula: `0.60 * steamerPtsPerGame + 0.40 * recentFP/G`. Falls back to 100% Steamer when no recent data. The `PtsPerGameSource` interface (type assertion, not on `Source`) lets the optimizer use pre-computed blended values. Recent stats are fetched in parallel via `errgroup` in `fantrax/recent_stats.go`.
+**Blended scoring** — wraps Steamer with recent Fantrax stats (last 10 scoring periods). Falls back to 100% Steamer when no recent data. Recent stats are fetched in parallel via `errgroup` in `fantrax/recent_stats.go`.
+- **Hitters** (`BlendedSource`): `0.60 * steamerPtsPerGame + 0.40 * recentFP/G`. `PtsPerGameSource` interface (type assertion) lets the optimizer use pre-computed values.
+- **Pitchers** (`PitcherBlendedSource`): role-aware weights — SP: `0.85/0.15`, RP: `0.70/0.30` Steamer/recent. Requires minimum 4 GP before blending. `PitcherPtsPerGameSource` interface.
 
 **`internal/prospects`** — monitors minor league prospects across MLB transactions, MiLB performance breakouts, and prospect ranking sources (MLB Pipeline primary, FanGraphs fallback). Produces a daily prospect report in the GHA job summary with call-up alerts, hot streak detection, free agent watch, and upgrade recommendations. Separate from roster alerts (which detect slot mismatches); this focuses on external data to find new players to pick up. Rankings are cached in `.prospects-cache/` (168h default TTL). Breakout detection uses level-adjusted thresholds (AAA/AA/A-ball). Transaction tracking uses a cursor to avoid duplicate alerts across runs.
 
-**`internal/schedule`** — hits `statsapi.mlb.com` for today's game schedule. Returns a `map[string]bool` of playing MLB team abbreviations. The URL is a `var` (not `const`) to allow test overriding.
+**`internal/roster`** — `CheckRoster` scans the full roster for slot mismatches (healthy players in IL, called-up players in Minors, injured/minor-leaguers in active slots). Suppresses alerts when IL/Minors slots are full. Separate from prospect report — this is about current roster hygiene.
 
-**`internal/optimizer`** — pure functions, no I/O. `OptimizeLineup` uses backtracking with pruning to find the globally optimal slot assignment that maximizes total expected points. Checks `PtsPerGameSource` (type assertion) before falling back to `expectedPts`. `EligibleForSlot` in `fantrax/client.go` handles UT (accepts any hitter) and INF (accepts any infield position ID).
+**`internal/schedule`** — hits `statsapi.mlb.com` for game schedule and probable pitchers. `TeamsPlayingOn` returns a `map[string]bool` of playing team abbreviations. `ProbableStarters` returns normalized pitcher name → team abbreviation. Both URLs are `var` (not `const`) to allow test overriding.
+
+**`internal/optimizer`** — pure functions, no I/O. Two parallel optimizers:
+- **Hitters** (`OptimizeLineup`): backtracking with pruning to find globally optimal slot assignment maximizing total expected points. Checks `PtsPerGameSource` (type assertion) before falling back to `expectedPts`. `EligibleForSlot` in `fantrax/client.go` handles UT (accepts any hitter) and INF (accepts any infield position ID).
+- **Pitchers** (`OptimizePitcherLineup`): sorts by hasGame → expectedPts → ID, then assigns to slots. Uses probable starter data to determine if SPs start; when no probable data is available (future dates), SPs default to "has game" if their team plays.
 
 **Scoring model** — this league scores: `1B`, `2B`, `3B`, `HR`, `RBI`, `R`, `BB`, `SB`, `CS`, `HBP`, `SO`, `GIDP`, `XBH`, `TB`, `CYC`. The `expectedPts` function derives `1B = H - 2B - 3B - HR`, `XBH = 2B + 3B + HR`, `TB = 1B + 2×2B + 3×3B + 4×HR` before applying weights.
 
