@@ -22,7 +22,7 @@ func TestBlendedSource_WithRecentStats(t *testing.T) {
 	scoring := fantrax.ScoringWeights{"HR": 4.0, "RBI": 1.0}
 	// Steamer: (20/100)*4 + (60/100)*1 = 0.8 + 0.6 = 1.4
 	// Recent: 10/5 = 2.0
-	// Blended: 0.6*1.4 + 0.4*2.0 = 0.84 + 0.8 = 1.64
+	// Blended: 0.7*1.4 + 0.3*2.0 = 0.98 + 0.6 = 1.58
 
 	src := NewBlendedSource(inner, map[string]fantrax.RecentStat{
 		"player1": {TotalFP: 10.0, GamesPlayed: 5},
@@ -32,8 +32,8 @@ func TestBlendedSource_WithRecentStats(t *testing.T) {
 	if !ok {
 		t.Fatal("expected true")
 	}
-	if pts < 1.63 || pts > 1.65 {
-		t.Errorf("expected ~1.64, got %.4f", pts)
+	if pts < 1.57 || pts > 1.59 {
+		t.Errorf("expected ~1.58, got %.4f", pts)
 	}
 }
 

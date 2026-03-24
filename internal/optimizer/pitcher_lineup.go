@@ -163,9 +163,11 @@ func scorePitcherRoster(
 					hasGame = teamPlays
 				}
 			} else {
-				// No probable data (future date/TBD): default to start if team plays.
+				// No probable data (future date/TBD): SP has a game if team plays
+				// but is NOT marked as a confirmed starter. The 0.10x non-starter
+				// discount applies, so RPs (full value) are preferred for limited
+				// P slots. The daily run corrects this when probables are announced.
 				hasGame = teamPlays
-				isStarter = teamPlays
 			}
 		} else {
 			// RP: always eligible if team plays (can enter any game).
