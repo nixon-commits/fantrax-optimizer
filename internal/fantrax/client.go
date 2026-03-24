@@ -101,7 +101,7 @@ func (c *Client) getLeagueInfo() (*gofantrax.LeagueInfo, error) {
 	if c.leagueInfo != nil {
 		return c.leagueInfo, nil
 	}
-	info, err := c.getLeagueInfo()
+	info, err := c.public.GetLeagueInfo(c.leagueID)
 	if err != nil {
 		return nil, err
 	}

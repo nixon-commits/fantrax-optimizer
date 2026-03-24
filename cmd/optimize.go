@@ -17,6 +17,7 @@ import (
 
 var (
 	datesStr    string
+	daysAhead   int
 	checkRoster bool
 )
 
@@ -28,6 +29,7 @@ var optimizeCmd = &cobra.Command{
 
 func init() {
 	optimizeCmd.Flags().StringVar(&datesStr, "dates", "", "date(s) for schedule lookup: YYYY-MM-DD, YYYY-MM-DD:YYYY-MM-DD, or 'all' (default: today)")
+	optimizeCmd.Flags().IntVar(&daysAhead, "days", 0, "optimize for the next N days starting from today")
 	optimizeCmd.Flags().BoolVar(&checkRoster, "check-roster", true, "check for roster slot mismatches (IL/minors)")
 	rootCmd.AddCommand(optimizeCmd)
 }
@@ -36,9 +38,16 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	today := time.Now().Truncate(24 * time.Hour)
 
 	// Parse dates early for non-"all" cases; "all" needs the Fantrax client.
+	if daysAhead > 0 && datesStr != "" {
+		return fmt.Errorf("--days and --dates are mutually exclusive")
+	}
 	var dates []time.Time
 	needsSeasonLookup := datesStr == "all"
-	if !needsSeasonLookup {
+	if daysAhead > 0 {
+		for i := 0; i < daysAhead; i++ {
+			dates = append(dates, today.AddDate(0, 0, i))
+		}
+	} else if !needsSeasonLookup {
 		var err error
 		dates, err = parseDates(datesStr, today)
 		if err != nil {
@@ -213,6 +222,13 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Skip optimization if today is before the season start.
+	if !seasonStart.IsZero() && today.Before(seasonStart) && !multiDate {
+		log.Printf("season starts %s — nothing to optimize yet", seasonStart.Format("2006-01-02"))
+		fmt.Printf("\nSeason starts %s. No games to optimize for today.\n", seasonStart.Format("2006-01-02"))
+		return nil
+	}
+
 	// Build name/slot lookup maps for display.
 	playerName := make(map[string]string)
 	for _, p := range hitterRoster {
@@ -308,62 +324,124 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			log.Printf("WARNING: %s", w)
 		}
 
+		// Date header
+		dateLabel := dr.date.Format("Mon Jan 2")
+		if dr.isToday {
+			dateLabel += " (today)"
+		}
 		if multiDate {
-			header := dr.date.Format("2006-01-02")
-			if dr.isToday {
-				header += " (today)"
-			}
-			fmt.Printf("\n=== %s ===\n", header)
+			fmt.Printf("\n╔══════════════════════════════════════════════════════════════╗\n")
+			fmt.Printf("║  %-58s  ║\n", dateLabel)
+			fmt.Printf("╚══════════════════════════════════════════════════════════════╝\n")
 		}
 
 		// --- Print hitter ranking ---
-		fmt.Println("\n=== Hitter Ranking ===")
-		fmt.Printf("%-25s %-6s %-8s %s\n", "Player", "Team", "Pts/G", "Game?")
-		fmt.Println(strings.Repeat("-", 55))
+		hitterWidth := 60
+		fmt.Printf("\n  Hitters %s\n", strings.Repeat("─", hitterWidth-9))
+		fmt.Printf("  %-23s %-5s %7s  %-4s  %s\n", "Player", "Team", "Pts/G", "Slot", "Game")
+		fmt.Printf("  %s\n", strings.Repeat("─", hitterWidth))
+		var hitterStartingPts float64
+		var hitterStartCount int
+		benchSeparatorPrinted := false
 		for _, sp := range dr.hitterResult.Scored {
-			game := "no"
-			if sp.HasGame {
-				game = "YES"
+			slot := ""
+			isActive := sp.Player.Status == "Active"
+			if isActive {
+				if name, ok := slotName[sp.Player.RosterPosition]; ok {
+					slot = name
+				}
+				if sp.HasGame {
+					hitterStartingPts += sp.ExpectedPts
+					hitterStartCount++
+				}
+			} else if !benchSeparatorPrinted {
+				fmt.Printf("  %s\n", strings.Repeat("·", hitterWidth))
+				benchSeparatorPrinted = true
 			}
-			fmt.Printf("%-25s %-6s %-8.2f %s\n", sp.Player.Name, sp.Player.MLBTeam, sp.ExpectedPts, game)
+
+			game := "  "
+			if sp.HasGame {
+				game = "✓ "
+			}
+
+			marker := " "
+			if isActive {
+				marker = "▸"
+			}
+
+			fmt.Printf("  %s %-22s %-5s %7.2f  %-4s  %s\n", marker, sp.Player.Name, sp.Player.MLBTeam, sp.ExpectedPts, slot, game)
 		}
+		fmt.Printf("  %s\n", strings.Repeat("─", hitterWidth))
+		fmt.Printf("  %-23s %5s %7.2f  (%d starting)\n", "Total", "", hitterStartingPts, hitterStartCount)
 
 		// --- Print pitcher ranking ---
-		fmt.Println("\n=== Pitcher Ranking ===")
-		fmt.Printf("%-25s %-6s %-8s %-6s %-6s %s\n", "Player", "Team", "Pts/G", "Role", "Prob", "Game?")
-		fmt.Println(strings.Repeat("-", 72))
+		pitcherWidth := 68
+		fmt.Printf("\n  Pitchers %s\n", strings.Repeat("─", pitcherWidth-10))
+		fmt.Printf("  %-23s %-5s %7s  %-4s  %-3s %-5s %s\n", "Player", "Team", "Pts/G", "Slot", "Pos", "Prob", "Game")
+		fmt.Printf("  %s\n", strings.Repeat("─", pitcherWidth))
+		var pitcherStartingPts float64
+		var pitcherStartCount int
+		benchSeparatorPrinted = false
 		for _, sp := range dr.pitcherResult.Scored {
-			game := "no"
-			if sp.HasGame {
-				game = "YES"
+			slot := ""
+			isActive := sp.Player.Status == "Active"
+			if isActive {
+				if name, ok := slotName[sp.Player.RosterPosition]; ok {
+					slot = name
+				}
+				if sp.HasGame {
+					pitcherStartingPts += sp.ExpectedPts
+					pitcherStartCount++
+				}
+			} else if !benchSeparatorPrinted {
+				fmt.Printf("  %s\n", strings.Repeat("·", pitcherWidth))
+				benchSeparatorPrinted = true
 			}
+
 			role := sp.Player.PosShortNames
 			if role == "" {
 				role = "P"
 			}
 			prob := ""
 			if sp.IsStarter {
-				prob = "YES"
+				prob = "★"
 			}
-			fmt.Printf("%-25s %-6s %-8.2f %-6s %-6s %s\n", sp.Player.Name, sp.Player.MLBTeam, sp.ExpectedPts, role, prob, game)
+
+			game := "  "
+			if sp.HasGame {
+				game = "✓ "
+			}
+
+			marker := " "
+			if isActive {
+				marker = "▸"
+			}
+
+			fmt.Printf("  %s %-22s %-5s %7.2f  %-4s  %-3s %-5s %s\n", marker, sp.Player.Name, sp.Player.MLBTeam, sp.ExpectedPts, slot, role, prob, game)
 		}
+		fmt.Printf("  %s\n", strings.Repeat("─", pitcherWidth))
+		fmt.Printf("  %-23s %5s %7.2f  (%d starting)\n", "Total", "", pitcherStartingPts, pitcherStartCount)
+
+		// --- Combined total ---
+		fmt.Printf("\n  %-23s %5s %7.2f\n", "Combined Expected", "", hitterStartingPts+pitcherStartingPts)
 
 		// --- Combine changes ---
 		allActivate := append(dr.hitterResult.ToActivate, dr.pitcherResult.ToActivate...)
 		allBench := append(dr.hitterResult.ToBench, dr.pitcherResult.ToBench...)
 
 		// --- Print planned moves ---
-		fmt.Println("\n=== Planned Lineup Changes ===")
 		if len(allActivate) == 0 && len(allBench) == 0 {
-			fmt.Println("No changes needed.")
+			fmt.Println("\n  No changes needed.")
 			continue
 		}
 
+		changesWidth := 60
+		fmt.Printf("\n  Changes %s\n", strings.Repeat("─", changesWidth-9))
 		for _, ps := range allActivate {
-			fmt.Printf("  ACTIVATE  %-25s → %s\n", playerName[ps.PlayerID], slotName[ps.PosID])
+			fmt.Printf("    ↑ %-25s → %s\n", playerName[ps.PlayerID], slotName[ps.PosID])
 		}
 		for _, id := range allBench {
-			fmt.Printf("  BENCH     %s\n", playerName[id])
+			fmt.Printf("    ↓ %-25s → BN\n", playerName[id])
 		}
 
 		if cfg.DryRun {
