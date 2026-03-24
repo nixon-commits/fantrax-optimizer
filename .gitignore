@@ -1,5 +1,5 @@
 .env
-fantrax-optimizer
+rosterbot
 *.test
 .claude/settings.local.json
 .fantrax-cache/

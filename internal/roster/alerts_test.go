@@ -3,7 +3,7 @@ package roster
 import (
 	"testing"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/fantrax"
 )
 
 // openSlots returns slot counts with plenty of room so alerts aren't suppressed.

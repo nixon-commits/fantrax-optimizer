@@ -3,7 +3,7 @@ package projections
 import (
 	"testing"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/fantrax"
 )
 
 type stubSource struct {

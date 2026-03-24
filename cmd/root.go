@@ -5,16 +5,16 @@ import (
 	"os"
 	"time"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/config"
-	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/config"
+	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/spf13/cobra"
 )
 
 var dryRun bool
 
 var rootCmd = &cobra.Command{
-	Use:   "fantrax-optimizer",
-	Short: "Fantasy baseball lineup optimizer for Fantrax leagues",
+	Use:   "rosterbot",
+	Short: "Fantasy baseball roster automation for Fantrax leagues",
 }
 
 func init() {

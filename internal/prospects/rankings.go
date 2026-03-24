@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
-	"github.com/nixon-commits/fantrax-optimizer/internal/projections"
+	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/projections"
 )
 
 // fgProspectURL is a var so tests can override it.

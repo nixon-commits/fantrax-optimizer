@@ -1,7 +1,7 @@
 .PHONY: build install test run dry-run
 
 build:
-	go build -o fantrax-optimizer .
+	go build -o rosterbot .
 
 install:
 	go install .

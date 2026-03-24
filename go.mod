@@ -1,4 +1,4 @@
-module github.com/nixon-commits/fantrax-optimizer
+module github.com/nixon-commits/rosterbot
 
 go 1.26.1
 

@@ -1,6 +1,6 @@
 package main
 
-import "github.com/nixon-commits/fantrax-optimizer/cmd"
+import "github.com/nixon-commits/rosterbot/cmd"
 
 func main() {
 	cmd.Execute()

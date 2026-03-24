@@ -6,11 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
-	"github.com/nixon-commits/fantrax-optimizer/internal/optimizer"
-	"github.com/nixon-commits/fantrax-optimizer/internal/projections"
-	"github.com/nixon-commits/fantrax-optimizer/internal/roster"
-	"github.com/nixon-commits/fantrax-optimizer/internal/schedule"
+	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/optimizer"
+	"github.com/nixon-commits/rosterbot/internal/projections"
+	"github.com/nixon-commits/rosterbot/internal/roster"
+	"github.com/nixon-commits/rosterbot/internal/schedule"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 )

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
-	"github.com/nixon-commits/fantrax-optimizer/internal/roster"
+	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/roster"
 )
 
 // parseDates parses the --dates flag value into a slice of dates.

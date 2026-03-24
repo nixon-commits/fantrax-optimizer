@@ -3,7 +3,7 @@ package cmd
 import (
 	"time"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/prospects"
+	"github.com/nixon-commits/rosterbot/internal/prospects"
 	"github.com/spf13/cobra"
 )
 

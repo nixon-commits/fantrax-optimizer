@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/projections"
+	"github.com/nixon-commits/rosterbot/internal/projections"
 )
 
 var mlbScheduleURL = "https://statsapi.mlb.com/api/v1/schedule?sportId=1&hydrate=team&date=%s"

@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
-	"github.com/nixon-commits/fantrax-optimizer/internal/projections"
+	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/projections"
 	"github.com/pmurley/go-fantrax/auth_client"
 )
 

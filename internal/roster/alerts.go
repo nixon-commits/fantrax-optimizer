@@ -1,6 +1,6 @@
 package roster
 
-import "github.com/nixon-commits/fantrax-optimizer/internal/fantrax"
+import "github.com/nixon-commits/rosterbot/internal/fantrax"
 
 // AlertType classifies the roster mismatch.
 type AlertType string
