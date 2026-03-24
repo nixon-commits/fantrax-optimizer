@@ -20,7 +20,17 @@ jobs:
       - uses: browser-actions/setup-chrome@v2
 
       - name: Optimize lineup
-        run: go run ./cmd --prospects
+        run: go run . optimize
+        env:
+          FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
+          FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
+          FANTRAX_LEAGUE_ID: ${{ secrets.FANTRAX_LEAGUE_ID }}
+          FANTRAX_TEAM_ID: ${{ secrets.FANTRAX_TEAM_ID }}
+          FANTRAX_IL_SLOTS: ${{ secrets.FANTRAX_IL_SLOTS }}
+          FANTRAX_MINORS_SLOTS: ${{ secrets.FANTRAX_MINORS_SLOTS }}
+
+      - name: Prospect report
+        run: go run . prospects
         env:
           FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
           FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}

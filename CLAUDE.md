@@ -5,14 +5,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-make build              # build all packages (or: go build ./...)
+make build              # build binary (or: go build -o fantrax-optimizer .)
+make install            # install to $GOPATH/bin
 make test               # run all unit tests (or: go test ./internal/...)
 go test ./internal/optimizer/...  # run a specific package's tests
-make dry-run            # run locally without applying changes
-go run ./cmd --dry-run --dates 2026-04-01  # test a specific date
-go run ./cmd --dry-run --dates 2026-03-26:2026-03-28  # test a date range
-go run ./cmd --dry-run --dates all  # test full season from today
-go run ./cmd --prospects --dry-run  # run prospect report locally
+make dry-run            # run optimizer locally without applying changes
+go run . optimize --dry-run --dates 2026-04-01  # test a specific date
+go run . optimize --dry-run --dates 2026-03-26:2026-03-28  # test a date range
+go run . optimize --dry-run --dates all  # test full season from today
+go run . prospects --dry-run  # run prospect report locally
 ```
 
 Tests require no credentials — all network dependencies are mocked via interfaces or test servers.
@@ -23,7 +24,7 @@ Optional prospect report env vars (all have defaults): `PROSPECT_ROLLING_DAYS` (
 
 ## Architecture
 
-The optimizer runs as a single binary (`cmd/main.go`) that wires together four independent packages:
+The optimizer runs as a single binary (`main.go`) with Cobra subcommands (`cmd/`) that wire together four independent packages:
 
 ```
 fantrax client  ──┐
@@ -31,7 +32,7 @@ mlb schedule    ──┼──► optimizer ──► apply lineup (or dry-run 
 fangraphs proj  ──┘
 ```
 
-**`internal/config`** — loads env vars via `godotenv`, validates that all four required vars are set, and returns a `Config` struct used by `cmd/main.go` to wire everything together.
+**`internal/config`** — loads env vars via `godotenv`, validates that all four required vars are set, and returns a `Config` struct used by the CLI commands to wire everything together.
 
 **`internal/fantrax`** — wraps `github.com/pmurley/go-fantrax` (public read API) and `go-fantrax/auth_client` (authenticated API + lineup writes). Key details:
 - `auth_client` uses chromedp (headless Chrome) to log in and obtain a session cookie. Cookie is cached in `.fantrax-cache/`. On first run or cache miss, a browser opens.

@@ -1,13 +1,16 @@
-.PHONY: build test run dry-run
+.PHONY: build install test run dry-run
 
 build:
-	go build ./...
+	go build -o fantrax-optimizer .
+
+install:
+	go install .
 
 test:
 	go test ./internal/...
 
 run:
-	go run ./cmd
+	go run . optimize
 
 dry-run:
-	go run ./cmd --dry-run
+	go run . optimize --dry-run
