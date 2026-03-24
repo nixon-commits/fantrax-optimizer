@@ -211,6 +211,13 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Extract hitter handedness for matchup adjustments.
+	var hitterBats map[string]string
+	if fgSrc != nil {
+		hitterBats = fgSrc.HitterBats()
+		log.Printf("hitter handedness loaded: %d players", len(hitterBats))
+	}
+
 	// --- Pitcher projections (shared across dates) ---
 	var pitcherProjSrc projections.PitcherSource
 	fgPitSrc, err := projections.NewFanGraphsPitcherSource()
@@ -240,6 +247,15 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				pitcherProjSrc = projections.NewPitcherBlendedSource(pitBaseSrc, recentPitStats, pitcherScoring, pitNameToID, pitPlayerPos)
 			}
 		}
+	}
+
+	// Extract pitcher handedness and FIP for matchup adjustments.
+	var pitcherHandedness map[string]string
+	var pitcherFIP map[string]float64
+	var leagueAvgFIP float64
+	if fgPitSrc != nil {
+		pitcherHandedness, pitcherFIP, leagueAvgFIP = fgPitSrc.PitcherInfo()
+		log.Printf("pitcher info loaded: %d handedness, %d FIP, league avg FIP=%.2f", len(pitcherHandedness), len(pitcherFIP), leagueAvgFIP)
 	}
 
 	multiDate := len(cfg.Dates) > 1
@@ -410,21 +426,49 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				probableStarters = map[string]string{} // empty = default to start
 			}
 
-			// Fetch game venues for park factor adjustment.
+			// Fetch game venues for park factor and matchup adjustments.
 			var venues map[string]string
-			if parkFactors != nil {
-				v, err := schedClient.GameVenues(date)
-				if err != nil {
-					warnings = append(warnings, fmt.Sprintf("game venues unavailable for %s (%v) — using neutral park", date.Format("2006-01-02"), err))
-				} else {
-					venues = v
-				}
+			v, err := schedClient.GameVenues(date)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("game venues unavailable for %s (%v)", date.Format("2006-01-02"), err))
+			} else {
+				venues = v
 			}
 
 			// Optimize hitters (with park factor adjustment if available).
 			dateHitterSrc := hitterProjSrc
 			if venues != nil && parkFactors != nil {
 				dateHitterSrc = projections.NewParkAdjustedSource(hitterProjSrc, parkFactors, venues)
+			}
+
+			// Build opposing pitcher map for matchup adjustments.
+			if len(probableStarters) > 0 && leagueAvgFIP > 0 && venues != nil {
+				opposingPitchers := make(map[string]projections.OpposingPitcher)
+				for pitcherName, pitcherTeam := range probableStarters {
+					pitcherHome := venues[pitcherTeam]
+					for team, homeTeam := range venues {
+						if team == pitcherTeam {
+							continue
+						}
+						if homeTeam == pitcherHome {
+							opp := projections.OpposingPitcher{
+								Name: pitcherName,
+								Team: pitcherTeam,
+							}
+							if h, ok := pitcherHandedness[pitcherName]; ok {
+								opp.Throws = h
+							}
+							if f, ok := pitcherFIP[pitcherName]; ok {
+								opp.FIP = f
+							}
+							opposingPitchers[team] = opp
+							break
+						}
+					}
+				}
+				if len(opposingPitchers) > 0 {
+					dateHitterSrc = projections.NewMatchupAdjustedSource(dateHitterSrc, opposingPitchers, hitterBats, leagueAvgFIP)
+				}
 			}
 			hitterResult := optimizer.OptimizeLineup(dateHitterRoster, playingToday, dateHitterSrc, hitterScoring, hitterSlots)
 
