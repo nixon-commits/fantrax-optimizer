@@ -25,6 +25,11 @@ type Config struct {
 	ProspectMinGames       int
 	ProspectRankCacheHours int
 	ProspectRankThreshold  int
+
+	// GS-check settings (all optional; validated by the gs-check command).
+	GSCap            int    // league-wide GS cap per scoring period
+	PushoverUserKey  string // Pushover user key for push notifications
+	PushoverAPIToken string // Pushover app API token
 }
 
 func Load(dryRun bool, dates []time.Time) (*Config, error) {
@@ -46,6 +51,10 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 		ProspectMinGames:       envInt("PROSPECT_MIN_GAMES", 8),
 		ProspectRankCacheHours: envInt("PROSPECT_RANK_CACHE_HOURS", 168),
 		ProspectRankThreshold:  envInt("PROSPECT_UPGRADE_RANK_THRESHOLD", 20),
+
+		GSCap:            envInt("GS_CAP", 0),
+		PushoverUserKey:  os.Getenv("PUSHOVER_USER_KEY"),
+		PushoverAPIToken: os.Getenv("PUSHOVER_API_TOKEN"),
 	}
 
 	var missing []string

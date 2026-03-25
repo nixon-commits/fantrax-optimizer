@@ -15,6 +15,8 @@ go run . optimize --dry-run --dates 2026-03-26:2026-03-28  # test a date range
 go run . optimize --dry-run --dates all  # test full season from today
 go run . optimize --dry-run --matchup    # test remaining days in current matchup period
 go run . prospects --dry-run  # run prospect report locally
+go run . gs-check --dry-run --force  # check GS violations for most recent period
+go run . gs-check --dry-run          # check GS violations (only if yesterday ended a period)
 ```
 
 Tests require no credentials — all network dependencies are mocked via interfaces or test servers.
@@ -22,6 +24,8 @@ Tests require no credentials — all network dependencies are mocked via interfa
 For local dev, create a `.env` file (gitignored) with `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Loaded automatically by `godotenv`.
 
 Optional env vars with defaults: `FANTRAX_GS` (0 = no limit) — weekly game-start limit per matchup period. `PROSPECT_ROLLING_DAYS` (14), `PROSPECT_MIN_GAMES` (8), `PROSPECT_RANK_CACHE_HOURS` (168), `PROSPECT_UPGRADE_RANK_THRESHOLD` (20).
+
+GS-check env vars (required only for `gs-check` command): `GS_CAP` (league-wide GS cap per scoring period), `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN`.
 
 ## Architecture
 
@@ -53,6 +57,10 @@ fangraphs proj  ──┘
 
 **`internal/prospects`** — monitors minor league prospects across MLB transactions, MiLB performance breakouts, and prospect ranking sources (MLB Pipeline primary, FanGraphs fallback). Produces a daily prospect report in the GHA job summary with call-up alerts, hot streak detection, free agent watch, and upgrade recommendations. Separate from roster alerts (which detect slot mismatches); this focuses on external data to find new players to pick up. Rankings are cached in `.prospects-cache/` (168h default TTL). Breakout detection uses level-adjusted thresholds (AAA/AA/A-ball). Transaction tracking uses a cursor to avoid duplicate alerts across runs.
 
+**`internal/gscheck`** — league-wide GS violation checker. `RunGSCheck` fetches all scoring periods and teams via `getStandings`, iterates every team to tally active-slot pitcher GS for a completed period, detects violations (GS > cap), and sends a Pushover notification. The `gs-check` CLI command validates that `GS_CAP`, `PUSHOVER_USER_KEY`, and `PUSHOVER_API_TOKEN` are set before running.
+
+**`internal/notify`** — notification helpers. `SendPushover` sends push notifications via the Pushover API. Self-contained function taking explicit parameters (no config dependency).
+
 **`internal/roster`** — `CheckRoster` scans the full roster for slot mismatches (healthy players in IL, called-up players in Minors, injured/minor-leaguers in active slots). Suppresses alerts when IL/Minors slots are full. Separate from prospect report — this is about current roster hygiene.
 
 **`internal/schedule`** — hits `statsapi.mlb.com` for game schedule and probable pitchers. `TeamsPlayingOn` returns a `map[string]bool` of playing team abbreviations. `ProbableStarters` returns normalized pitcher name → team abbreviation. Both URLs are `var` (not `const`) to allow test overriding.
@@ -83,3 +91,5 @@ The optimizer must produce identical output given the same inputs. Key invariant
 ## GHA
 
 `.github/workflows/lineup.yml` runs daily at 10am UTC (6am ET) and on `workflow_dispatch`. Requires six repository secrets: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Optional: `FANTRAX_GS` (weekly GS limit). Chrome is installed via `browser-actions/setup-chrome@v2` before the Go run step.
+
+`.github/workflows/gs-check.yml` runs daily at 12pm UTC (8am ET) and on `workflow_dispatch` (with `force` and `dry_run` inputs). Checks league-wide GS violations at period end. Additional secret: `GS_CAP`.

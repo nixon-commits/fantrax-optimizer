@@ -1,0 +1,40 @@
+package cmd
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/nixon-commits/rosterbot/internal/gscheck"
+	"github.com/spf13/cobra"
+)
+
+var forceCheck bool
+
+var gsCheckCmd = &cobra.Command{
+	Use:   "gs-check",
+	Short: "Check league-wide GS violations for the most recent scoring period",
+	RunE:  runGSCheck,
+}
+
+func init() {
+	gsCheckCmd.Flags().BoolVar(&forceCheck, "force", false,
+		"skip end-of-period check, use most recent completed period")
+	rootCmd.AddCommand(gsCheckCmd)
+}
+
+func runGSCheck(cmd *cobra.Command, args []string) error {
+	today := time.Now().Truncate(24 * time.Hour)
+	cfg, ft, err := initApp([]time.Time{today})
+	if err != nil {
+		return err
+	}
+
+	if cfg.GSCap <= 0 {
+		return fmt.Errorf("GS_CAP env var required for gs-check command")
+	}
+	if cfg.PushoverUserKey == "" || cfg.PushoverAPIToken == "" {
+		return fmt.Errorf("PUSHOVER_USER_KEY and PUSHOVER_API_TOKEN env vars required for gs-check command")
+	}
+
+	return gscheck.RunGSCheck(ft, *cfg, forceCheck)
+}

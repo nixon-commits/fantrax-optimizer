@@ -1,0 +1,51 @@
+name: GS Violation Check
+
+on:
+  schedule:
+    - cron: '0 12 * * *'   # 12pm UTC (8am ET) every day
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Skip end-of-period check (use latest period)'
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Dry run — print report but skip notifications'
+        type: boolean
+        default: false
+
+jobs:
+  check-gs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - uses: browser-actions/setup-chrome@v2
+
+      - name: Run GS check
+        run: |
+          FLAGS=""
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            FLAGS="$FLAGS --force"
+          fi
+          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          go run . gs-check $FLAGS
+        env:
+          FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
+          FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
+          FANTRAX_LEAGUE_ID: ${{ secrets.FANTRAX_LEAGUE_ID }}
+          FANTRAX_TEAM_ID: ${{ secrets.FANTRAX_TEAM_ID }}
+          FANTRAX_IL_SLOTS: ${{ secrets.FANTRAX_IL_SLOTS }}
+          FANTRAX_MINORS_SLOTS: ${{ secrets.FANTRAX_MINORS_SLOTS }}
+          GS_CAP: ${{ secrets.GS_CAP }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
