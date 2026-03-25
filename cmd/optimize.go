@@ -181,7 +181,11 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 
 	// --- Hitter projections (shared across dates) ---
 	var hitterProjSrc projections.Source
-	fgSrc, err := projections.NewFanGraphsSource()
+	fgSrc, err := projections.NewFanGraphsSourceFromCSV("fangraphs-leaderboard-projections_batters.csv")
+	if err != nil {
+		log.Printf("CSV batting projections unavailable (%v) — trying API", err)
+		fgSrc, err = projections.NewFanGraphsSource()
+	}
 	if err != nil {
 		log.Printf("WARNING: fangraphs batting unavailable (%v) — using rolling stats only", err)
 		hitterProjSrc = projections.NewRollingSource()
@@ -227,7 +231,11 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 
 	// --- Pitcher projections (shared across dates) ---
 	var pitcherProjSrc projections.PitcherSource
-	fgPitSrc, err := projections.NewFanGraphsPitcherSource()
+	fgPitSrc, err := projections.NewFanGraphsPitcherSourceFromCSV("fangraphs-leaderboard-projections_pitchers.csv")
+	if err != nil {
+		log.Printf("CSV pitching projections unavailable (%v) — trying API", err)
+		fgPitSrc, err = projections.NewFanGraphsPitcherSource()
+	}
 	if err != nil {
 		log.Printf("WARNING: fangraphs pitching unavailable (%v) — using rolling stats only", err)
 		pitcherProjSrc = projections.NewPitcherRollingSource()

@@ -1,9 +1,13 @@
 package projections
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -116,6 +120,102 @@ func NewFanGraphsSource() (*FanGraphsSource, error) {
 		}
 	}
 	return src, nil
+}
+
+// NewFanGraphsSourceFromCSV loads Steamer batting projections from a local CSV file
+// (exported from FanGraphs leaderboard). Falls back to the API if the file doesn't exist.
+func NewFanGraphsSourceFromCSV(path string) (*FanGraphsSource, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open csv: %w", err)
+	}
+	defer f.Close()
+
+	// Strip BOM if present.
+	bom := make([]byte, 3)
+	if _, err := io.ReadFull(f, bom); err != nil {
+		return nil, fmt.Errorf("read csv: %w", err)
+	}
+	if bom[0] != 0xEF || bom[1] != 0xBB || bom[2] != 0xBF {
+		// No BOM — seek back to start.
+		if _, err := f.Seek(0, 0); err != nil {
+			return nil, fmt.Errorf("seek csv: %w", err)
+		}
+	}
+
+	r := csv.NewReader(f)
+	header, err := r.Read()
+	if err != nil {
+		return nil, fmt.Errorf("csv header: %w", err)
+	}
+	col := make(map[string]int, len(header))
+	for i, h := range header {
+		col[strings.TrimSpace(h)] = i
+	}
+
+	// Verify required columns exist.
+	required := []string{"Name", "Team", "G", "PA", "H", "1B", "2B", "3B", "HR", "RBI", "R", "BB", "SB", "CS", "HBP", "SO", "GDP", "MLBAMID"}
+	for _, c := range required {
+		if _, ok := col[c]; !ok {
+			return nil, fmt.Errorf("csv missing required column: %s", c)
+		}
+	}
+
+	src := &FanGraphsSource{
+		projections: make(map[string]*Projection),
+		mlbamIDs:    make(map[string]int),
+	}
+
+	for {
+		record, err := r.Read()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("csv read: %w", err)
+		}
+
+		name := strings.TrimSpace(record[col["Name"]])
+		team := strings.ToUpper(strings.TrimSpace(record[col["Team"]]))
+		if name == "" {
+			continue
+		}
+
+		p := &Projection{
+			G:       csvFloat(record, col, "G"),
+			PA:      csvFloat(record, col, "PA"),
+			H:       csvFloat(record, col, "H"),
+			Singles: csvFloat(record, col, "1B"),
+			Doubles: csvFloat(record, col, "2B"),
+			Triples: csvFloat(record, col, "3B"),
+			HR:      csvFloat(record, col, "HR"),
+			RBI:     csvFloat(record, col, "RBI"),
+			R:       csvFloat(record, col, "R"),
+			BB:      csvFloat(record, col, "BB"),
+			SB:      csvFloat(record, col, "SB"),
+			CS:      csvFloat(record, col, "CS"),
+			HBP:     csvFloat(record, col, "HBP"),
+			SO:      csvFloat(record, col, "SO"),
+			GIDP:    csvFloat(record, col, "GDP"),
+		}
+		src.projections[projKey(name, team)] = p
+
+		if mlbID := csvInt(record, col, "MLBAMID"); mlbID > 0 {
+			src.mlbamIDs[NormalizeName(name)] = mlbID
+		}
+	}
+
+	return src, nil
+}
+
+func csvFloat(record []string, col map[string]int, name string) float64 {
+	v, _ := strconv.ParseFloat(strings.TrimSpace(record[col[name]]), 64)
+	return v
+}
+
+func csvInt(record []string, col map[string]int, name string) int {
+	v, _ := strconv.Atoi(strings.TrimSpace(record[col[name]]))
+	return v
 }
 
 // GetProjection looks up a player's projection by name and MLB team.
