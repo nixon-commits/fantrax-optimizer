@@ -8,29 +8,24 @@ import (
 )
 
 func TestMatchupWeekBounds(t *testing.T) {
-	seasonStart := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)
+	seasonStart := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
 
-	// Build matchups: 7 daily periods per week, alternating opponents.
-	// Week 1: periods 1-7, opponent "opp1"
-	// Week 2: periods 8-14, opponent "opp2"
-	var matchups []auth_client.Matchup
-	for i := 0; i < 7; i++ {
-		d := seasonStart.AddDate(0, 0, i)
-		matchups = append(matchups, auth_client.Matchup{
-			ScoringPeriod: i + 1,
-			Date:          d.Format("Mon Jan 2, 2006"),
+	// Weekly matchup entries: each entry is one week-long scoring period.
+	// Week 1 (period 1): Mar 25 – Mar 31, opponent "opp1"
+	// Week 2 (period 2): Apr 1 – Apr 7, opponent "opp2"
+	matchups := []auth_client.Matchup{
+		{
+			ScoringPeriod: 1,
+			Date:          "Wed Mar 25, 2026",
 			AwayTeam:      auth_client.MatchTeam{TeamID: "myteam"},
 			HomeTeam:      auth_client.MatchTeam{TeamID: "opp1"},
-		})
-	}
-	for i := 0; i < 7; i++ {
-		d := seasonStart.AddDate(0, 0, 7+i)
-		matchups = append(matchups, auth_client.Matchup{
-			ScoringPeriod: 8 + i,
-			Date:          d.Format("Mon Jan 2, 2006"),
+		},
+		{
+			ScoringPeriod: 2,
+			Date:          "Wed Apr 1, 2026",
 			AwayTeam:      auth_client.MatchTeam{TeamID: "opp2"},
 			HomeTeam:      auth_client.MatchTeam{TeamID: "myteam"},
-		})
+		},
 	}
 
 	tests := []struct {
@@ -43,25 +38,25 @@ func TestMatchupWeekBounds(t *testing.T) {
 			"first day of week 1",
 			seasonStart,
 			seasonStart,
-			seasonStart.AddDate(0, 0, 6),
+			seasonStart.AddDate(0, 0, 6), // Mar 31
 		},
 		{
 			"mid week 1",
-			seasonStart.AddDate(0, 0, 3),
+			seasonStart.AddDate(0, 0, 3), // Mar 28
 			seasonStart,
 			seasonStart.AddDate(0, 0, 6),
 		},
 		{
 			"last day of week 1",
-			seasonStart.AddDate(0, 0, 6),
+			seasonStart.AddDate(0, 0, 6), // Mar 31
 			seasonStart,
 			seasonStart.AddDate(0, 0, 6),
 		},
 		{
 			"first day of week 2",
-			seasonStart.AddDate(0, 0, 7),
-			seasonStart.AddDate(0, 0, 7),
-			seasonStart.AddDate(0, 0, 13),
+			time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC), // last run uses +6 days
 		},
 	}
 
@@ -79,11 +74,11 @@ func TestMatchupWeekBounds(t *testing.T) {
 }
 
 func TestMatchupWeekBounds_NoMatch(t *testing.T) {
-	seasonStart := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)
+	seasonStart := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
 	matchups := []auth_client.Matchup{
 		{
 			ScoringPeriod: 1,
-			Date:          seasonStart.Format("Mon Jan 2, 2006"),
+			Date:          "Wed Mar 25, 2026",
 			AwayTeam:      auth_client.MatchTeam{TeamID: "other1"},
 			HomeTeam:      auth_client.MatchTeam{TeamID: "other2"},
 		},
@@ -94,27 +89,44 @@ func TestMatchupWeekBounds_NoMatch(t *testing.T) {
 	}
 }
 
-func TestMatchupWeekBounds_HomeAndAway(t *testing.T) {
-	seasonStart := time.Date(2026, 3, 26, 0, 0, 0, 0, time.UTC)
-	// Team is away in week 1, home in week 2.
+func TestMatchupWeekBounds_MultiWeekSameOpponent(t *testing.T) {
+	seasonStart := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
+	// Two consecutive weeks against the same opponent should group together.
 	matchups := []auth_client.Matchup{
-		{ScoringPeriod: 1, Date: seasonStart.Format("Mon Jan 2, 2006"),
+		{ScoringPeriod: 1, Date: "Wed Mar 25, 2026",
 			AwayTeam: auth_client.MatchTeam{TeamID: "myteam"}, HomeTeam: auth_client.MatchTeam{TeamID: "opp1"}},
-		{ScoringPeriod: 2, Date: seasonStart.AddDate(0, 0, 1).Format("Mon Jan 2, 2006"),
+		{ScoringPeriod: 2, Date: "Wed Apr 1, 2026",
 			AwayTeam: auth_client.MatchTeam{TeamID: "myteam"}, HomeTeam: auth_client.MatchTeam{TeamID: "opp1"}},
-		{ScoringPeriod: 3, Date: seasonStart.AddDate(0, 0, 2).Format("Mon Jan 2, 2006"),
+		{ScoringPeriod: 3, Date: "Wed Apr 8, 2026",
 			AwayTeam: auth_client.MatchTeam{TeamID: "opp2"}, HomeTeam: auth_client.MatchTeam{TeamID: "myteam"}},
 	}
 
+	// Day in week 1 should return the full 2-week span vs opp1.
 	start, end := MatchupWeekBounds(matchups, "myteam", seasonStart, seasonStart)
-	if !start.Equal(seasonStart) || !end.Equal(seasonStart.AddDate(0, 0, 1)) {
-		t.Errorf("week 1 should be periods 1-2 (same opponent opp1), got %s to %s",
-			start.Format("2006-01-02"), end.Format("2006-01-02"))
+	wantStart := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
+	wantEnd := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC) // day before Apr 8
+	if !start.Equal(wantStart) {
+		t.Errorf("weekStart = %s, want %s", start.Format("2006-01-02"), wantStart.Format("2006-01-02"))
+	}
+	if !end.Equal(wantEnd) {
+		t.Errorf("weekEnd = %s, want %s", end.Format("2006-01-02"), wantEnd.Format("2006-01-02"))
 	}
 
-	start2, end2 := MatchupWeekBounds(matchups, "myteam", seasonStart, seasonStart.AddDate(0, 0, 2))
-	if !start2.Equal(seasonStart.AddDate(0, 0, 2)) || !end2.Equal(seasonStart.AddDate(0, 0, 2)) {
-		t.Errorf("week 2 should be period 3 only (opponent opp2), got %s to %s",
-			start2.Format("2006-01-02"), end2.Format("2006-01-02"))
+	// Day in week 2 (still vs opp1) should return same span.
+	start2, end2 := MatchupWeekBounds(matchups, "myteam", seasonStart, time.Date(2026, 4, 3, 0, 0, 0, 0, time.UTC))
+	if !start2.Equal(wantStart) || !end2.Equal(wantEnd) {
+		t.Errorf("mid-run lookup: got %s to %s, want %s to %s",
+			start2.Format("2006-01-02"), end2.Format("2006-01-02"),
+			wantStart.Format("2006-01-02"), wantEnd.Format("2006-01-02"))
+	}
+
+	// Week 3 (vs opp2) should be its own span.
+	start3, end3 := MatchupWeekBounds(matchups, "myteam", seasonStart, time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC))
+	wantStart3 := time.Date(2026, 4, 8, 0, 0, 0, 0, time.UTC)
+	wantEnd3 := time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC) // last run, +6 days
+	if !start3.Equal(wantStart3) || !end3.Equal(wantEnd3) {
+		t.Errorf("week 3: got %s to %s, want %s to %s",
+			start3.Format("2006-01-02"), end3.Format("2006-01-02"),
+			wantStart3.Format("2006-01-02"), wantEnd3.Format("2006-01-02"))
 	}
 }

@@ -55,32 +55,26 @@ func (c *Client) GetCurrentPeriod() (int, error) {
 }
 
 // GetSeasonDateRange returns the first and last dates of the Fantrax season
-// by inspecting all scoring period matchups.
+// by using the scoring periods endpoint which has actual start/end dates.
 func (c *Client) GetSeasonDateRange() (time.Time, time.Time, error) {
-	result, err := c.auth.GetAllMatchups()
+	periods, _, err := c.GetScoringPeriodsAndTeams()
 	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("get all matchups: %w", err)
+		return time.Time{}, time.Time{}, fmt.Errorf("get scoring periods: %w", err)
 	}
-
-	var first, last time.Time
-	for _, m := range result.Matchups {
-		t, err := parseMatchupDate(m.Date)
-		if err != nil {
-			continue
-		}
-		if first.IsZero() || t.Before(first) {
-			first = t
-		}
-		if last.IsZero() || t.After(last) {
-			last = t
-		}
-	}
-	if first.IsZero() {
+	if len(periods) == 0 {
 		return time.Time{}, time.Time{}, fmt.Errorf("no scoring periods found")
 	}
-	// Last period date is the start of the last period; add 6 days as buffer.
-	// The MLB schedule API will naturally skip off-days.
-	last = last.AddDate(0, 0, 6)
+
+	first := periods[0].StartDate
+	last := periods[0].EndDate
+	for _, p := range periods[1:] {
+		if p.StartDate.Before(first) {
+			first = p.StartDate
+		}
+		if p.EndDate.After(last) {
+			last = p.EndDate
+		}
+	}
 	return first, last, nil
 }
 

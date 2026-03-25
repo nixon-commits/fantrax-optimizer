@@ -9,7 +9,8 @@ import (
 
 // MatchupWeekBounds returns the inclusive [start, end] calendar dates of the
 // matchup week that contains date for the given fantasy teamID.
-// It groups consecutive scoring periods where teamID faces the same opponent.
+// It groups consecutive same-opponent matchup entries (which are weekly, not daily)
+// and uses date ranges to determine which week the target date falls in.
 // Returns zero times if no matchup week contains the date.
 func MatchupWeekBounds(
 	matchups []auth_client.Matchup,
@@ -40,20 +41,32 @@ func MatchupWeekBounds(
 		mine = append(mine, entry{m.ScoringPeriod, opp, t})
 	}
 
-	sort.Slice(mine, func(i, j int) bool { return mine[i].period < mine[j].period })
+	sort.Slice(mine, func(i, j int) bool { return mine[i].date.Before(mine[j].date) })
 
-	targetPeriod := PeriodForDate(seasonStart, date)
+	dateYMD := date.Format("2006-01-02")
 
 	// Walk sorted entries and group consecutive same-opponent runs.
 	i := 0
 	for i < len(mine) {
 		j := i + 1
-		for j < len(mine) && mine[j].opponent == mine[i].opponent && mine[j].period == mine[i].period+(j-i) {
+		for j < len(mine) && mine[j].opponent == mine[i].opponent {
 			j++
 		}
-		// Run is [i, j). Check if targetPeriod falls in this run.
-		if targetPeriod >= mine[i].period && targetPeriod <= mine[j-1].period {
-			return mine[i].date, mine[j-1].date
+		// Run is [i, j). The run starts on mine[i].date and ends the day
+		// before the next run starts (or on the last entry's date if it's the
+		// final run — we add 6 days as a reasonable week length).
+		runStart := mine[i].date
+		var runEnd time.Time
+		if j < len(mine) {
+			runEnd = mine[j].date.AddDate(0, 0, -1)
+		} else {
+			runEnd = mine[j-1].date.AddDate(0, 0, 6)
+		}
+
+		startYMD := runStart.Format("2006-01-02")
+		endYMD := runEnd.Format("2006-01-02")
+		if dateYMD >= startYMD && dateYMD <= endYMD {
+			return runStart, runEnd
 		}
 		i = j
 	}
