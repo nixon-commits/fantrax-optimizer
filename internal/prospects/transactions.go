@@ -15,10 +15,12 @@ var mlbTransactionsURL = "https://statsapi.mlb.com/api/v1/transactions?startDate
 // your Minors roster and ranked prospects to produce alerts.
 // myMinors: normalized name -> true for players on your Minors roster.
 // rankings: normalized name -> rank (1-100) for ranked prospects.
+// available: normalized name -> true for free agents in your league (nil = unknown).
 func FetchTransactionAlerts(
 	from, to time.Time,
 	myMinors map[string]bool,
 	rankings map[string]int,
+	available map[string]bool,
 ) ([]ProspectAlert, error) {
 	url := fmt.Sprintf(mlbTransactionsURL, from.Format("2006-01-02"), to.Format("2006-01-02"))
 
@@ -69,12 +71,24 @@ func FetchTransactionAlerts(
 					Rank:       rank,
 				})
 			} else if rank > 0 {
+				detail := fmt.Sprintf("#%d prospect called up", rank)
+				prio := "high"
+				if available != nil {
+					if available[name] {
+						detail += " — FA in your league, pick him up!"
+					} else {
+						detail += " — owned in your league"
+						prio = "low"
+					}
+				} else {
+					detail += " — available in your league?"
+				}
 				alerts = append(alerts, ProspectAlert{
 					Kind:       FreeAgentBuzz,
-					Priority:   "high",
+					Priority:   prio,
 					PlayerName: txn.Person.FullName,
 					MLBTeam:    team,
-					Detail:     fmt.Sprintf("#%d prospect called up — available in your league?", rank),
+					Detail:     detail,
 					Rank:       rank,
 				})
 			}

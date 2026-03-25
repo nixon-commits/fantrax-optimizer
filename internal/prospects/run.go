@@ -130,9 +130,18 @@ func RunProspectReport(ft *fantrax.Client, cfg config.Config, today time.Time) e
 		cursorDate = today.AddDate(0, 0, -3)
 	}
 
+	// Build available-player set for transaction alert enrichment.
+	var availableSet map[string]bool
+	if len(availablePlayers) > 0 {
+		availableSet = make(map[string]bool, len(availablePlayers))
+		for _, p := range availablePlayers {
+			availableSet[projections.NormalizeName(p.Name)] = true
+		}
+	}
+
 	// Fetch alerts (both non-fatal on error)
 	var txnAlerts []ProspectAlert
-	ta, err := FetchTransactionAlerts(cursorDate, today, myMinors, rankingsMap)
+	ta, err := FetchTransactionAlerts(cursorDate, today, myMinors, rankingsMap, availableSet)
 	if err != nil {
 		log.Printf("WARNING: transaction alerts failed: %v", err)
 	} else {

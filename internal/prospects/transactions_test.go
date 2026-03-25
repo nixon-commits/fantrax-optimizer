@@ -37,7 +37,7 @@ func TestFetchTransactionAlerts_CalledUpOnMyTeam(t *testing.T) {
 	from := time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
 	to := time.Date(2026, 3, 22, 0, 0, 0, 0, time.UTC)
 
-	alerts, err := FetchTransactionAlerts(from, to, myMinors, rankings)
+	alerts, err := FetchTransactionAlerts(from, to, myMinors, rankings, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -81,10 +81,12 @@ func TestFetchTransactionAlerts_FreeAgentBuzz(t *testing.T) {
 	myMinors := map[string]bool{} // not on my team
 	rankings := map[string]int{"jasson dominguez": 8}
 
+	// With available set — player IS a free agent.
+	available := map[string]bool{"jasson dominguez": true}
 	alerts, err := FetchTransactionAlerts(
 		time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
 		time.Date(2026, 3, 22, 0, 0, 0, 0, time.UTC),
-		myMinors, rankings,
+		myMinors, rankings, available,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -97,6 +99,55 @@ func TestFetchTransactionAlerts_FreeAgentBuzz(t *testing.T) {
 	}
 	if alerts[0].Rank != 8 {
 		t.Errorf("expected rank 8, got %d", alerts[0].Rank)
+	}
+	if alerts[0].Priority != "high" {
+		t.Errorf("expected high priority for FA, got %s", alerts[0].Priority)
+	}
+	if exp := "#8 prospect called up — FA in your league, pick him up!"; alerts[0].Detail != exp {
+		t.Errorf("expected detail %q, got %q", exp, alerts[0].Detail)
+	}
+}
+
+func TestFetchTransactionAlerts_FreeAgentBuzz_Owned(t *testing.T) {
+	fixture := map[string]interface{}{
+		"transactions": []map[string]interface{}{
+			{
+				"person":   map[string]interface{}{"fullName": "Jasson Dominguez"},
+				"toTeam":   map[string]interface{}{"abbreviation": "NYY"},
+				"typeCode": "CU",
+				"date":     "2026-03-22T00:00:00",
+			},
+		},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(fixture)
+	}))
+	defer srv.Close()
+
+	origURL := mlbTransactionsURL
+	mlbTransactionsURL = srv.URL + "?startDate=%s&endDate=%s"
+	defer func() { mlbTransactionsURL = origURL }()
+
+	myMinors := map[string]bool{}
+	rankings := map[string]int{"jasson dominguez": 8}
+	available := map[string]bool{} // not in available = owned
+
+	alerts, err := FetchTransactionAlerts(
+		time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
+		time.Date(2026, 3, 22, 0, 0, 0, 0, time.UTC),
+		myMinors, rankings, available,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(alerts) != 1 {
+		t.Fatalf("expected 1 alert, got %d", len(alerts))
+	}
+	if alerts[0].Priority != "low" {
+		t.Errorf("expected low priority for owned player, got %s", alerts[0].Priority)
+	}
+	if exp := "#8 prospect called up — owned in your league"; alerts[0].Detail != exp {
+		t.Errorf("expected detail %q, got %q", exp, alerts[0].Detail)
 	}
 }
 
@@ -128,7 +179,7 @@ func TestFetchTransactionAlerts_OptionedLowPriority(t *testing.T) {
 	alerts, err := FetchTransactionAlerts(
 		time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
 		time.Date(2026, 3, 22, 0, 0, 0, 0, time.UTC),
-		myMinors, nil,
+		myMinors, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -155,7 +206,7 @@ func TestFetchTransactionAlerts_EmptyResponse(t *testing.T) {
 	alerts, err := FetchTransactionAlerts(
 		time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC),
 		time.Date(2026, 3, 22, 0, 0, 0, 0, time.UTC),
-		nil, nil,
+		nil, nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
