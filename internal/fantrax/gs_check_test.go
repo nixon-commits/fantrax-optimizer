@@ -32,6 +32,51 @@ func TestFindJustEndedPeriod(t *testing.T) {
 	}
 }
 
+func TestFindCurrentPeriod(t *testing.T) {
+	periods := []ScoringPeriod{
+		{Number: 1, Caption: "Scoring Period 1", StartDate: time.Date(2026, 3, 23, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)},
+		{Number: 2, Caption: "Scoring Period 2", StartDate: time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)},
+		{Number: 3, Caption: "Scoring Period 3", StartDate: time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC), EndDate: time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)},
+	}
+
+	// Today is March 25 → within period 1.
+	today := time.Date(2026, 3, 25, 0, 0, 0, 0, time.UTC)
+	p := FindCurrentPeriod(periods, today)
+	if p == nil {
+		t.Fatal("expected period 1, got nil")
+	}
+	if p.Number != 1 {
+		t.Errorf("expected period 1, got %d", p.Number)
+	}
+
+	// Today is March 29 → last day of period 1.
+	today = time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)
+	p = FindCurrentPeriod(periods, today)
+	if p == nil {
+		t.Fatal("expected period 1, got nil")
+	}
+	if p.Number != 1 {
+		t.Errorf("expected period 1, got %d", p.Number)
+	}
+
+	// Today is March 30 → first day of period 2.
+	today = time.Date(2026, 3, 30, 0, 0, 0, 0, time.UTC)
+	p = FindCurrentPeriod(periods, today)
+	if p == nil {
+		t.Fatal("expected period 2, got nil")
+	}
+	if p.Number != 2 {
+		t.Errorf("expected period 2, got %d", p.Number)
+	}
+
+	// Today is March 20 → before any period.
+	today = time.Date(2026, 3, 20, 0, 0, 0, 0, time.UTC)
+	p = FindCurrentPeriod(periods, today)
+	if p != nil {
+		t.Errorf("expected nil, got period %d", p.Number)
+	}
+}
+
 func TestFindMostRecentPastPeriod(t *testing.T) {
 	periods := []ScoringPeriod{
 		{Number: 1, Caption: "Scoring Period 1", EndDate: time.Date(2026, 3, 29, 0, 0, 0, 0, time.UTC)},

@@ -269,6 +269,17 @@ func FindJustEndedPeriod(periods []ScoringPeriod, today time.Time) *ScoringPerio
 	return nil
 }
 
+// FindCurrentPeriod returns the period that contains today (start <= today <= end), or nil.
+func FindCurrentPeriod(periods []ScoringPeriod, today time.Time) *ScoringPeriod {
+	todayYMD := today.Format("2006-01-02")
+	for i := range periods {
+		if periods[i].StartDate.Format("2006-01-02") <= todayYMD && todayYMD <= periods[i].EndDate.Format("2006-01-02") {
+			return &periods[i]
+		}
+	}
+	return nil
+}
+
 // FindMostRecentPastPeriod returns the most recent period whose end date is before today.
 func FindMostRecentPastPeriod(periods []ScoringPeriod, today time.Time) *ScoringPeriod {
 	todayYMD := today.Format("2006-01-02")

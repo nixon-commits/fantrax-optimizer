@@ -53,9 +53,12 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 
 	var period *fantrax.ScoringPeriod
 	if force {
-		period = fantrax.FindMostRecentPastPeriod(periods, today)
+		period = fantrax.FindCurrentPeriod(periods, today)
 		if period == nil {
-			period = &periods[len(periods)-1]
+			period = fantrax.FindMostRecentPastPeriod(periods, today)
+		}
+		if period == nil {
+			return fmt.Errorf("no current or past scoring period found for %s", today.Format("2006-01-02"))
 		}
 		fmt.Printf("--force: using period %d (%s)\n", period.Number, period.Caption)
 	} else {
