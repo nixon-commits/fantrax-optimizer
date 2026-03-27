@@ -76,11 +76,20 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 	if len(teamMap) == 0 {
 		return fmt.Errorf("no teams found")
 	}
-	fmt.Printf("Found %d teams. Tallying GS for Period %d...\n", len(teamMap), period.Number)
+
+	// Derive season start from the earliest scoring period (period 1 = season opener).
+	seasonStart := periods[0].StartDate
+	for _, p := range periods {
+		if p.StartDate.Before(seasonStart) {
+			seasonStart = p.StartDate
+		}
+	}
+	fmt.Printf("Found %d teams. Tallying GS for Period %d (days %s to %s)...\n",
+		len(teamMap), period.Number, period.StartDate.Format("2006-01-02"), today.Format("2006-01-02"))
 
 	var results []teamGS
 	for teamID, teamName := range teamMap {
-		gs, err := ft.GetTeamGS(teamID, period.Number)
+		gs, err := ft.GetTeamGS(teamID, *period, seasonStart, today)
 		if err != nil {
 			fmt.Printf("WARNING: failed to get GS for %s: %v\n", teamName, err)
 			continue

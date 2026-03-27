@@ -137,8 +137,31 @@ type gsRosterRequest struct {
 }
 
 // GetTeamGS returns the total Games Started for active-slot pitchers on a team
-// for the given scoring period.
-func (c *Client) GetTeamGS(teamID string, period int) (int, error) {
+// across all daily periods within the given matchup scoring period.
+// seasonStart is the first day of the season (period 1), used to convert dates
+// to daily period numbers.
+func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today time.Time) (int, error) {
+	// Determine the last date to check: either the period end or today, whichever is earlier.
+	endDate := sp.EndDate
+	todayTrunc := today.Truncate(24 * time.Hour)
+	if todayTrunc.Before(endDate) {
+		endDate = todayTrunc
+	}
+
+	totalGS := 0
+	for d := sp.StartDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
+		dailyPeriod := PeriodForDate(seasonStart, d)
+		gs, err := c.getTeamGSForPeriod(teamID, dailyPeriod)
+		if err != nil {
+			return 0, fmt.Errorf("period %d (%s): %w", dailyPeriod, d.Format("2006-01-02"), err)
+		}
+		totalGS += gs
+	}
+	return totalGS, nil
+}
+
+// getTeamGSForPeriod returns the GS for a single daily period.
+func (c *Client) getTeamGSForPeriod(teamID string, period int) (int, error) {
 	data := gsRosterRequest{
 		LeagueID:            c.leagueID,
 		Reload:              "1",
