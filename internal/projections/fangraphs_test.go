@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -103,6 +104,79 @@ func TestFanGraphsSource_MLBAMIDs(t *testing.T) {
 	}
 	if ids["juan soto"] != 665742 {
 		t.Errorf("Soto MLBAMID: got %d, want 665742", ids["juan soto"])
+	}
+}
+
+func TestSetProjectionSystem_UpdatesURLs(t *testing.T) {
+	origBat := fangraphsBattingURL
+	origPit := fangraphsPitchingURL
+	defer func() {
+		fangraphsBattingURL = origBat
+		fangraphsPitchingURL = origPit
+	}()
+
+	tests := []struct {
+		system  string
+		wantBat string
+		wantPit string
+		wantErr bool
+	}{
+		{"steamer", "type=steamer&stats=bat", "type=steamer&stats=pit", false},
+		{"depthcharts", "type=fangraphsdc&stats=bat", "type=fangraphsdc&stats=pit", false},
+		{"thebatx", "type=thebatx&stats=bat", "type=thebatx&stats=pit", false},
+		{"bogus", "", "", true},
+	}
+
+	for _, tt := range tests {
+		err := SetProjectionSystem(tt.system)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("SetProjectionSystem(%q) expected error, got nil", tt.system)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("SetProjectionSystem(%q) unexpected error: %v", tt.system, err)
+			continue
+		}
+		if !strings.Contains(fangraphsBattingURL, tt.wantBat) {
+			t.Errorf("SetProjectionSystem(%q): batting URL %q missing %q", tt.system, fangraphsBattingURL, tt.wantBat)
+		}
+		if !strings.Contains(fangraphsPitchingURL, tt.wantPit) {
+			t.Errorf("SetProjectionSystem(%q): pitching URL %q missing %q", tt.system, fangraphsPitchingURL, tt.wantPit)
+		}
+	}
+}
+
+
+func TestSetProjectionSystem_AffectsFetch(t *testing.T) {
+	// Verify that after SetProjectionSystem, NewFanGraphsSource hits the updated URL.
+	origBat := fangraphsBattingURL
+	origPit := fangraphsPitchingURL
+	defer func() {
+		fangraphsBattingURL = origBat
+		fangraphsPitchingURL = origPit
+	}()
+
+	var receivedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedPath = r.URL.RawQuery
+		json.NewEncoder(w).Encode([]map[string]interface{}{
+			{"PlayerName": "Test Player", "Team": "NYY", "G": 100.0, "PA": 400.0, "H": 100.0,
+				"1B": 60.0, "2B": 20.0, "3B": 5.0, "HR": 15.0, "RBI": 50.0, "R": 60.0,
+				"BB": 40.0, "SB": 5.0, "CS": 2.0, "HBP": 3.0, "SO": 80.0, "GDP": 5.0},
+		})
+	}))
+	defer srv.Close()
+
+	// Point URLs at test server, then switch system to steamer.
+	fangraphsBattingURL = srv.URL + "?type=steamer&stats=bat"
+	_, err := NewFanGraphsSource()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if receivedPath != "type=steamer&stats=bat" {
+		t.Errorf("expected query type=steamer&stats=bat, got %q", receivedPath)
 	}
 }
 
