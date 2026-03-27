@@ -32,10 +32,13 @@ jobs:
       - name: Run GS check
         run: |
           FLAGS=""
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+          FORCE="${{ github.event.inputs.force }}"
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          # On schedule (no inputs), default force=true, dry_run=false
+          if [ "${FORCE:-true}" = "true" ]; then
             FLAGS="$FLAGS --force"
           fi
-          if [ "${{ github.event.inputs.dry_run }}" = "true" ]; then
+          if [ "${DRY_RUN:-false}" = "true" ]; then
             FLAGS="$FLAGS --dry-run"
           fi
           go run . gs-check $FLAGS
