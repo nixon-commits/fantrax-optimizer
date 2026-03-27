@@ -137,27 +137,24 @@ type gsRosterRequest struct {
 }
 
 // GetTeamGS returns the total Games Started for active-slot pitchers on a team
-// across all daily periods within the given matchup scoring period.
+// within the given matchup scoring period. The Fantrax API returns cumulative
+// stats per daily period, so we query the most recent completed day to get the
+// running total.
 // seasonStart is the first day of the season (period 1), used to convert dates
 // to daily period numbers.
 func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today time.Time) (int, error) {
-	// Determine the last date to check: either the period end or today, whichever is earlier.
-	endDate := sp.EndDate
-	todayTrunc := today.Truncate(24 * time.Hour)
-	if todayTrunc.Before(endDate) {
-		endDate = todayTrunc
+	// Use yesterday as the last completed day. If the period hasn't started yet, return 0.
+	yesterday := today.Truncate(24*time.Hour).AddDate(0, 0, -1)
+	if yesterday.Before(sp.StartDate) {
+		return 0, nil
+	}
+	// Cap at the period end date.
+	if yesterday.After(sp.EndDate) {
+		yesterday = sp.EndDate
 	}
 
-	totalGS := 0
-	for d := sp.StartDate; !d.After(endDate); d = d.AddDate(0, 0, 1) {
-		dailyPeriod := PeriodForDate(seasonStart, d)
-		gs, err := c.getTeamGSForPeriod(teamID, dailyPeriod)
-		if err != nil {
-			return 0, fmt.Errorf("period %d (%s): %w", dailyPeriod, d.Format("2006-01-02"), err)
-		}
-		totalGS += gs
-	}
-	return totalGS, nil
+	dailyPeriod := PeriodForDate(seasonStart, yesterday)
+	return c.getTeamGSForPeriod(teamID, dailyPeriod)
 }
 
 // getTeamGSForPeriod returns the GS for a single daily period.
@@ -226,7 +223,8 @@ func (c *Client) getTeamGSForPeriod(teamID string, period int) (int, error) {
 	return sumGSFromTables(tables)
 }
 
-// sumGSFromTables finds the pitching table (scGroup=20) and sums the GS column.
+// sumGSFromTables finds the pitching table (scGroup=20) and sums the GS column
+// for active-slot pitchers only (StatusID "1").
 func sumGSFromTables(tables []models.RosterTable) (int, error) {
 	for _, table := range tables {
 		if !isPitchingGroup(table.SCGroup) {
@@ -246,6 +244,10 @@ func sumGSFromTables(tables []models.RosterTable) (int, error) {
 
 		totalGS := 0
 		for _, row := range table.Rows {
+			// Skip totals/summary rows (empty name, non-roster status, empty slots).
+			if row.Scorer.Name == "" || row.IsEmptyRosterSlot {
+				continue
+			}
 			if gsIdx >= len(row.Cells) {
 				continue
 			}
