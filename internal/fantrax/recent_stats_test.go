@@ -8,100 +8,81 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
-func TestAggregateRecentStats(t *testing.T) {
-	fp1 := 8.5
-	gp1 := 1
-	fp2 := 3.0
-	gp2 := 1
-
-	period1 := []models.RosterPlayer{
+func TestExtractHitterStats(t *testing.T) {
+	roster := []models.RosterPlayer{
 		{
 			PlayerID: "abc",
 			Name:     "Test Player",
 			Stats: &models.PlayerStats{
 				Batting: &models.BattingStats{
-					FantasyPointsPerGame: &fp1,
-					GamesPlayed:          &gp1,
-				},
-			},
-		},
-	}
-	period2 := []models.RosterPlayer{
-		{
-			PlayerID: "abc",
-			Name:     "Test Player",
-			Stats: &models.PlayerStats{
-				Batting: &models.BattingStats{
-					FantasyPointsPerGame: &fp2,
-					GamesPlayed:          &gp2,
+					FantasyPointsPerGame: ptr(5.75),
+					GamesPlayed:          ptr(2),
 				},
 			},
 		},
 	}
 
-	result := aggregateRecentStats([][]models.RosterPlayer{period1, period2})
+	result := extractHitterStats(roster)
 
 	stat, ok := result["abc"]
 	if !ok {
 		t.Fatal("expected player 'abc' in result")
 	}
-	if stat.TotalFP != 11.5 {
-		t.Errorf("TotalFP: got %v, want 11.5", stat.TotalFP)
+	if stat.FPtsPerGame != 5.75 {
+		t.Errorf("FPtsPerGame: got %v, want 5.75", stat.FPtsPerGame)
 	}
 	if stat.GamesPlayed != 2 {
 		t.Errorf("GamesPlayed: got %v, want 2", stat.GamesPlayed)
 	}
 }
 
-func TestAggregateRecentStats_NilStats(t *testing.T) {
-	gp0 := 0
-
-	period := []models.RosterPlayer{
+func TestExtractHitterStats_NilFPG(t *testing.T) {
+	roster := []models.RosterPlayer{
 		{
 			PlayerID: "xyz",
 			Name:     "Nil Stats Player",
 			Stats: &models.PlayerStats{
 				Batting: &models.BattingStats{
 					FantasyPointsPerGame: nil,
-					GamesPlayed:          &gp0,
+					GamesPlayed:          ptr(0),
 				},
 			},
 		},
 	}
 
-	result := aggregateRecentStats([][]models.RosterPlayer{period})
+	result := extractHitterStats(roster)
 
 	stat := result["xyz"]
-	if stat.TotalFP != 0 {
-		t.Errorf("TotalFP: got %v, want 0", stat.TotalFP)
+	if stat.FPtsPerGame != 0 {
+		t.Errorf("FPtsPerGame: got %v, want 0", stat.FPtsPerGame)
 	}
 	if stat.GamesPlayed != 0 {
 		t.Errorf("GamesPlayed: got %v, want 0", stat.GamesPlayed)
 	}
 }
 
-func TestAggregateRecentStats_NilPlayerStats(t *testing.T) {
-	period := []models.RosterPlayer{
+func TestExtractHitterStats_NilPlayerStats(t *testing.T) {
+	roster := []models.RosterPlayer{
 		{PlayerID: "a", Name: "No Stats", Stats: nil},
 	}
-	result := aggregateRecentStats([][]models.RosterPlayer{period})
+	result := extractHitterStats(roster)
 	if _, ok := result["a"]; ok {
 		t.Error("expected player with nil Stats to be skipped")
 	}
 }
 
-func TestAggregateRecentStats_NilBatting(t *testing.T) {
-	period := []models.RosterPlayer{
+func TestExtractHitterStats_NilBatting(t *testing.T) {
+	roster := []models.RosterPlayer{
 		{PlayerID: "b", Name: "No Batting", Stats: &models.PlayerStats{Batting: nil}},
 	}
-	result := aggregateRecentStats([][]models.RosterPlayer{period})
+	result := extractHitterStats(roster)
 	if _, ok := result["b"]; ok {
 		t.Error("expected player with nil Batting to be skipped")
 	}
 }
 
-func TestAggregateRecentStats_NilGamesPlayed(t *testing.T) {
-	period := []models.RosterPlayer{
+func TestExtractHitterStats_NilGamesPlayed(t *testing.T) {
+	roster := []models.RosterPlayer{
 		{
 			PlayerID: "c",
 			Name:     "Nil GP",
@@ -113,7 +94,7 @@ func TestAggregateRecentStats_NilGamesPlayed(t *testing.T) {
 			},
 		},
 	}
-	result := aggregateRecentStats([][]models.RosterPlayer{period})
+	result := extractHitterStats(roster)
 	if _, ok := result["c"]; ok {
 		t.Error("expected player with nil GamesPlayed to be skipped")
 	}

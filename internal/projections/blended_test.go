@@ -28,8 +28,8 @@ func TestBlendedSource_WithRecentStats(t *testing.T) {
 	// Blended ≈ 0.9294*1.4 + 0.0706*2.0 ≈ 1.4424
 
 	src := NewBlendedSource(inner, map[string]fantrax.RecentStat{
-		"player1": {TotalFP: 10.0, GamesPlayed: 5},
-	}, scoring, map[string]string{"test player": "player1"})
+		"player1": {FPtsPerGame: 2.0, GamesPlayed: 5},
+	}, scoring, map[string]string{"test player": "player1"}, 2)
 
 	pts, ok := src.GetPtsPerGame("Test Player", "NYY", scoring)
 	if !ok {
@@ -48,7 +48,7 @@ func TestBlendedSource_NoRecentStats_FallsBackToSteamer(t *testing.T) {
 	// Steamer only: (20/100)*4 = 0.8
 
 	src := NewBlendedSource(inner, map[string]fantrax.RecentStat{}, scoring,
-		map[string]string{"test player": "player1"})
+		map[string]string{"test player": "player1"}, 2)
 
 	pts, ok := src.GetPtsPerGame("Test Player", "NYY", scoring)
 	if !ok {
@@ -61,7 +61,7 @@ func TestBlendedSource_NoRecentStats_FallsBackToSteamer(t *testing.T) {
 
 func TestBlendedSource_NoSteamer_ReturnsFalse(t *testing.T) {
 	inner := &stubSource{proj: map[string]*Projection{}}
-	src := NewBlendedSource(inner, map[string]fantrax.RecentStat{}, nil, map[string]string{})
+	src := NewBlendedSource(inner, map[string]fantrax.RecentStat{}, nil, map[string]string{}, 2)
 	_, ok := src.GetPtsPerGame("Unknown Player", "NYY", fantrax.ScoringWeights{"HR": 4.0})
 	if ok {
 		t.Error("expected false for unknown player")
@@ -71,7 +71,7 @@ func TestBlendedSource_NoSteamer_ReturnsFalse(t *testing.T) {
 func TestBlendedSource_GetProjection_Delegates(t *testing.T) {
 	proj := &Projection{G: 100, HR: 20}
 	inner := &stubSource{proj: map[string]*Projection{"test player": proj}}
-	src := NewBlendedSource(inner, map[string]fantrax.RecentStat{}, nil, nil)
+	src := NewBlendedSource(inner, map[string]fantrax.RecentStat{}, nil, nil, 2)
 	p, ok := src.GetProjection("Test Player", "NYY")
 	if !ok {
 		t.Fatal("expected projection found")

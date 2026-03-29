@@ -267,7 +267,7 @@ func TestMatchupAdjusted_FullChainComposability(t *testing.T) {
 
 	// Blended: no recent stats → falls back to 100% Steamer.
 	blended := NewBlendedSource(innerProj, map[string]fantrax.RecentStat{}, scoring,
-		map[string]string{})
+		map[string]string{}, 2)
 
 	// Neutral park (all factors 1.0) to isolate matchup adjustment.
 	parkFactors := map[string]ParkFactors{

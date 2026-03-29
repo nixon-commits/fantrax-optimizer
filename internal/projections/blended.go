@@ -10,7 +10,6 @@ const (
 	hitterStabilizationPA = 250.0 // 50/50 at ~66 GP (roughly mid-June)
 	hitterPAPerGame       = 3.8   // approximate PA per game played
 	hitterSteamerFloor    = 0.30  // Steamer never drops below 30%
-	minGPForHitterBlend   = 4     // require at least 4 games before blending recent stats
 )
 
 // PtsPerGameSource can provide a pre-computed points-per-game value.
@@ -25,6 +24,7 @@ type BlendedSource struct {
 	recent   map[string]fantrax.RecentStat
 	scoring  fantrax.ScoringWeights
 	nameToID map[string]string // NormalizeName(name) → player ID
+	minGP    int
 }
 
 func NewBlendedSource(
@@ -32,8 +32,9 @@ func NewBlendedSource(
 	recent map[string]fantrax.RecentStat,
 	scoring fantrax.ScoringWeights,
 	nameToID map[string]string,
+	minGP int,
 ) *BlendedSource {
-	return &BlendedSource{inner: inner, recent: recent, scoring: scoring, nameToID: nameToID}
+	return &BlendedSource{inner: inner, recent: recent, scoring: scoring, nameToID: nameToID, minGP: minGP}
 }
 
 // GetProjection delegates to the inner source.
@@ -57,11 +58,11 @@ func (b *BlendedSource) GetPtsPerGame(name, mlbTeam string, scoring fantrax.Scor
 	}
 
 	recent, statOK := b.recent[playerID]
-	if !statOK || recent.GamesPlayed < minGPForHitterBlend {
+	if !statOK || recent.GamesPlayed < b.minGP {
 		return steamerPts, true
 	}
 
-	recentPtsPerGame := recent.TotalFP / float64(recent.GamesPlayed)
+	recentPtsPerGame := recent.FPtsPerGame
 	sw, rw := hitterBlendWeights(recent.GamesPlayed)
 	return sw*steamerPts + rw*recentPtsPerGame, true
 }
@@ -112,13 +113,13 @@ func (b *BlendedSource) GetHitterBreakdown(name, mlbTeam string, scoring fantrax
 	}
 
 	recent, statOK := b.recent[playerID]
-	if !statOK || recent.GamesPlayed < minGPForHitterBlend {
+	if !statOK || recent.GamesPlayed < b.minGP {
 		return bd
 	}
 
 	bd.HasRecent = true
 	bd.GamesPlayed = recent.GamesPlayed
-	bd.RecentFPG = recent.TotalFP / float64(recent.GamesPlayed)
+	bd.RecentFPG = recent.FPtsPerGame
 	bd.SteamerWt, bd.RecentWt = hitterBlendWeights(recent.GamesPlayed)
 	bd.BlendedPts = bd.SteamerWt*steamerPts + bd.RecentWt*bd.RecentFPG
 	return bd

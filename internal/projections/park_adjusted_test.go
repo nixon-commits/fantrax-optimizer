@@ -142,8 +142,8 @@ func TestParkAdjustedSource_WithBlendedInner(t *testing.T) {
 
 	// Create a BlendedSource with recent stats.
 	blended := NewBlendedSource(innerProj, map[string]fantrax.RecentStat{
-		"player1": {TotalFP: 15.0, GamesPlayed: 5},
-	}, scoring, map[string]string{"test player": "player1"})
+		"player1": {FPtsPerGame: 3.0, GamesPlayed: 5},
+	}, scoring, map[string]string{"test player": "player1"}, 2)
 
 	parkFactors := map[string]ParkFactors{
 		"COL": {Team: "COL", HR: 1.06, H: 1.17, R: 1.28, BB: 1.01, SO: 0.90, H1B: 1.16, H2B: 1.19, H3B: 2.02},

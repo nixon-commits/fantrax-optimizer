@@ -8,10 +8,9 @@ import (
 )
 
 const (
-	spStabilizationGP    = 15.0  // 50/50 at 15 starts
-	rpStabilizationGP    = 25.0  // 50/50 at 25 appearances
-	pitcherSteamerFloor  = 0.35  // pitchers are more volatile, higher floor
-	minGPForBlend        = 4     // minimum games played before blending recent data
+	spStabilizationGP   = 15.0 // 50/50 at 15 starts
+	rpStabilizationGP   = 25.0 // 50/50 at 25 appearances
+	pitcherSteamerFloor = 0.35 // pitchers are more volatile, higher floor
 )
 
 // PitcherPtsPerGameSource can provide a pre-computed pitcher points-per-game value.
@@ -23,11 +22,12 @@ type PitcherPtsPerGameSource interface {
 // value with recent Fantrax pitching data. Uses role-aware dynamic weights based
 // on games played, with SP stabilization at 15 GP and RP at 25 GP.
 type PitcherBlendedSource struct {
-	inner      PitcherSource
-	recent     map[string]fantrax.RecentStat
-	scoring    fantrax.ScoringWeights
-	nameToID   map[string]string   // NormalizeName(name) → player ID
-	playerPos  map[string][]string // player ID → position IDs
+	inner     PitcherSource
+	recent    map[string]fantrax.RecentStat
+	scoring   fantrax.ScoringWeights
+	nameToID  map[string]string   // NormalizeName(name) → player ID
+	playerPos map[string][]string // player ID → position IDs
+	minGP     int
 }
 
 func NewPitcherBlendedSource(
@@ -36,10 +36,11 @@ func NewPitcherBlendedSource(
 	scoring fantrax.ScoringWeights,
 	nameToID map[string]string,
 	playerPos map[string][]string,
+	minGP int,
 ) *PitcherBlendedSource {
 	return &PitcherBlendedSource{
 		inner: inner, recent: recent, scoring: scoring,
-		nameToID: nameToID, playerPos: playerPos,
+		nameToID: nameToID, playerPos: playerPos, minGP: minGP,
 	}
 }
 
@@ -64,11 +65,11 @@ func (b *PitcherBlendedSource) GetPitcherPtsPerGame(name, mlbTeam string, scorin
 	}
 
 	recent, statOK := b.recent[playerID]
-	if !statOK || recent.GamesPlayed < minGPForBlend {
+	if !statOK || recent.GamesPlayed < b.minGP {
 		return steamerPts, true
 	}
 
-	recentPtsPerGame := recent.TotalFP / float64(recent.GamesPlayed)
+	recentPtsPerGame := recent.FPtsPerGame
 
 	// Determine role from position eligibility, then compute dynamic weights.
 	isSP := isSPEligible(b.playerPos[playerID])

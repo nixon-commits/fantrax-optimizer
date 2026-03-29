@@ -19,6 +19,7 @@ type Config struct {
 	ILSlots      int
 	MinorsSlots  int
 	GSLimit      int // max game starts per matchup week (0 = no limit)
+	BlendMinGP   int // min games played before blending recent stats (default 2)
 
 	// Prospect report settings (all optional, with defaults).
 	ProspectRollingDays    int
@@ -46,6 +47,7 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 		ILSlots:     envInt("FANTRAX_IL_SLOTS", 0),
 		MinorsSlots: envInt("FANTRAX_MINORS_SLOTS", 0),
 		GSLimit:     envInt("FANTRAX_GS", 0),
+		BlendMinGP:  envInt("BLEND_MIN_GP", 2),
 
 		ProspectRollingDays:    envInt("PROSPECT_ROLLING_DAYS", 14),
 		ProspectMinGames:       envInt("PROSPECT_MIN_GAMES", 8),

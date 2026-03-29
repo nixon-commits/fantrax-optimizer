@@ -2,48 +2,43 @@ package fantrax
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
 	"github.com/pmurley/go-fantrax/models"
-	"golang.org/x/sync/errgroup"
 )
 
-// RecentStat holds aggregated fantasy-point and games-played totals for a player
-// across one or more recent scoring periods.
+// RecentStat holds season-to-date fantasy-points-per-game and games-played for
+// a player, extracted from a single Fantrax roster snapshot.
 type RecentStat struct {
-	TotalFP     float64
+	FPtsPerGame float64
 	GamesPlayed int
 }
 
-// aggregateRecentStats combines per-player stats across multiple periods.
-// Each element of periods is a flat slice of RosterPlayer entries for that period.
+// extractHitterStats extracts per-player batting stats from a single roster snapshot.
+// The Fantrax getTeamRosterInfo API returns cumulative season-to-date stats regardless
+// of which period is requested (the period parameter only controls the roster arrangement).
 // Nil Stats / Batting / FantasyPointsPerGame are skipped safely.
-func aggregateRecentStats(periods [][]models.RosterPlayer) map[string]RecentStat {
+func extractHitterStats(roster []models.RosterPlayer) map[string]RecentStat {
 	result := make(map[string]RecentStat)
 
-	for _, period := range periods {
-		for _, rp := range period {
-			if rp.Stats == nil || rp.Stats.Batting == nil {
-				continue
-			}
-			b := rp.Stats.Batting
-			if b.GamesPlayed == nil {
-				continue
-			}
-
-			stat := result[rp.PlayerID]
-
-			gp := *b.GamesPlayed
-			stat.GamesPlayed += gp
-
-			if b.FantasyPointsPerGame != nil && gp > 0 {
-				stat.TotalFP += *b.FantasyPointsPerGame * float64(gp)
-			}
-
-			result[rp.PlayerID] = stat
+	for _, rp := range roster {
+		if rp.Stats == nil || rp.Stats.Batting == nil {
+			continue
 		}
+		b := rp.Stats.Batting
+		if b.GamesPlayed == nil {
+			continue
+		}
+
+		gp := *b.GamesPlayed
+		stat := RecentStat{GamesPlayed: gp}
+
+		if b.FantasyPointsPerGame != nil && gp > 0 {
+			stat.FPtsPerGame = *b.FantasyPointsPerGame
+		}
+
+		result[rp.PlayerID] = stat
 	}
 
 	return result
@@ -90,42 +85,23 @@ func PeriodForDate(seasonStart, date time.Time) int {
 	return days + 1 // period 1 = day 0
 }
 
-// GetRecentStats fetches roster data for the last numPeriods scoring periods
-// and aggregates per-player stats. Periods are fetched in parallel via errgroup.
-func (c *Client) GetRecentStats(currentPeriod, numPeriods int) (map[string]RecentStat, error) {
-	// Collect valid period numbers (count backwards, skip <= 0).
-	var periodNums []int
-	for p := currentPeriod - 1; p >= currentPeriod-numPeriods && p > 0; p-- {
-		periodNums = append(periodNums, p)
+// GetRecentStats fetches the most recent completed period's roster and returns
+// the cumulative season-to-date batting stats for each player.
+//
+// The Fantrax getTeamRosterInfo API returns YTD stats regardless of which period
+// is requested — the period parameter only controls the roster snapshot. We fetch
+// the latest completed period (currentPeriod-1) to get current YTD stats.
+func (c *Client) GetRecentStats(currentPeriod, _ int) (map[string]RecentStat, error) {
+	period := currentPeriod - 1
+	if period < 1 {
+		return nil, fmt.Errorf("no completed periods (current=%d)", currentPeriod)
 	}
 
-	results := make([][]models.RosterPlayer, len(periodNums))
-
-	var g errgroup.Group
-	for i, p := range periodNums {
-		i, p := i, p // capture loop vars
-		g.Go(func() error {
-			roster, err := c.auth.GetTeamRosterInfo(strconv.Itoa(p), c.teamID)
-			if err != nil {
-				log.Printf("warning: failed to fetch roster for period %d: %v", p, err)
-				return nil // non-fatal; leave results[i] as nil
-			}
-			results[i] = append(roster.ActiveRoster, roster.ReserveRoster...)
-			return nil
-		})
+	roster, err := c.auth.GetTeamRosterInfo(strconv.Itoa(period), c.teamID)
+	if err != nil {
+		return nil, fmt.Errorf("fetch roster for period %d: %w", period, err)
 	}
 
-	if err := g.Wait(); err != nil {
-		return nil, err
-	}
-
-	// Filter out nil slices from failed periods.
-	var periods [][]models.RosterPlayer
-	for _, r := range results {
-		if r != nil {
-			periods = append(periods, r)
-		}
-	}
-
-	return aggregateRecentStats(periods), nil
+	players := append(roster.ActiveRoster, roster.ReserveRoster...)
+	return extractHitterStats(players), nil
 }

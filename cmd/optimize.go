@@ -219,15 +219,8 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			}
 			hitterProjSrc = baseSrc
 		} else {
-			lookback := currentPeriod - 1
-			if lookback > 60 {
-				lookback = 60
-			}
-			if lookback < 10 {
-				lookback = 10
-			}
-			log.Printf("fetching last %d hitter periods...", lookback)
-			recentStats, err := ft.GetRecentStats(currentPeriod, lookback)
+			log.Printf("fetching recent hitter stats (YTD through period %d)...", currentPeriod-1)
+			recentStats, err := ft.GetRecentStats(currentPeriod, 0)
 			if err != nil {
 				log.Printf("WARNING: recent hitter stats unavailable (%v) — using %s only", err, projDisplayName[projectionSystem])
 				hitterProjSrc = baseSrc
@@ -237,7 +230,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				for _, p := range hitterRoster {
 					nameToID[projections.NormalizeName(p.Name)] = p.ID
 				}
-				hitterProjSrc = projections.NewBlendedSource(baseSrc, recentStats, hitterScoring, nameToID)
+				hitterProjSrc = projections.NewBlendedSource(baseSrc, recentStats, hitterScoring, nameToID, cfg.BlendMinGP)
 			}
 		}
 	}
@@ -267,14 +260,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		if periodErr != nil || currentPeriod <= 1 {
 			pitcherProjSrc = pitBaseSrc
 		} else {
-			pitLookback := currentPeriod - 1
-			if pitLookback > 60 {
-				pitLookback = 60
-			}
-			if pitLookback < 10 {
-				pitLookback = 10
-			}
-			recentPitStats, err := ft.GetRecentPitcherStats(currentPeriod, pitLookback)
+			recentPitStats, err := ft.GetRecentPitcherStats(currentPeriod, 0)
 			if err != nil {
 				log.Printf("WARNING: recent pitcher stats unavailable (%v) — using %s only", err, projDisplayName[projectionSystem])
 				pitcherProjSrc = pitBaseSrc
@@ -286,7 +272,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 					pitNameToID[projections.NormalizeName(p.Name)] = p.ID
 					pitPlayerPos[p.ID] = p.Positions
 				}
-				pitcherProjSrc = projections.NewPitcherBlendedSource(pitBaseSrc, recentPitStats, pitcherScoring, pitNameToID, pitPlayerPos)
+				pitcherProjSrc = projections.NewPitcherBlendedSource(pitBaseSrc, recentPitStats, pitcherScoring, pitNameToID, pitPlayerPos, cfg.BlendMinGP)
 			}
 		}
 	}
