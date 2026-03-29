@@ -23,6 +23,14 @@ var (
 	matchupPeriod    bool
 	projectionSystem string
 	showBlend        bool
+
+	// projDisplayName maps projection system flag values to display-friendly names.
+	projDisplayName = map[string]string{
+		"steamer":     "Steamer",
+		"depthcharts": "DepthCharts",
+		"thebatx":     "TheBatX",
+	}
+
 )
 
 var optimizeCmd = &cobra.Command{
@@ -37,7 +45,7 @@ func init() {
 	optimizeCmd.Flags().BoolVar(&matchupPeriod, "matchup", false, "optimize for all remaining days in the current matchup period")
 	optimizeCmd.Flags().BoolVar(&checkRoster, "check-roster", true, "check for roster slot mismatches (IL/minors)")
 	optimizeCmd.Flags().StringVar(&projectionSystem, "projections", "depthcharts", "projection system: steamer, depthcharts, thebatx")
-	optimizeCmd.Flags().BoolVar(&showBlend, "blend", false, "show hitter blend breakdown (Steamer vs recent)")
+	optimizeCmd.Flags().BoolVar(&showBlend, "blend", false, "show hitter blend breakdown (projections vs recent)")
 	rootCmd.AddCommand(optimizeCmd)
 }
 
@@ -184,7 +192,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	// --- Current period (shared by hitter + pitcher blending) ---
 	currentPeriod, periodErr := ft.GetCurrentPeriod()
 	if periodErr != nil {
-		log.Printf("WARNING: could not get current period (%v) — using Steamer only", periodErr)
+		log.Printf("WARNING: could not get current period (%v) — using %s only", periodErr, projDisplayName[projectionSystem])
 	} else {
 		log.Printf("current period: %d", currentPeriod)
 	}
@@ -207,7 +215,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 
 		if periodErr != nil || currentPeriod <= 1 {
 			if currentPeriod <= 1 {
-				log.Printf("season not started (period %d) — using Steamer only", currentPeriod)
+				log.Printf("season not started (period %d) — using %s only", currentPeriod, projDisplayName[projectionSystem])
 			}
 			hitterProjSrc = baseSrc
 		} else {
@@ -221,7 +229,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			log.Printf("fetching last %d hitter periods...", lookback)
 			recentStats, err := ft.GetRecentStats(currentPeriod, lookback)
 			if err != nil {
-				log.Printf("WARNING: recent hitter stats unavailable (%v) — using Steamer only", err)
+				log.Printf("WARNING: recent hitter stats unavailable (%v) — using %s only", err, projDisplayName[projectionSystem])
 				hitterProjSrc = baseSrc
 			} else {
 				log.Printf("recent hitter stats loaded: %d players with data", len(recentStats))
@@ -268,7 +276,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			}
 			recentPitStats, err := ft.GetRecentPitcherStats(currentPeriod, pitLookback)
 			if err != nil {
-				log.Printf("WARNING: recent pitcher stats unavailable (%v) — using Steamer only", err)
+				log.Printf("WARNING: recent pitcher stats unavailable (%v) — using %s only", err, projDisplayName[projectionSystem])
 				pitcherProjSrc = pitBaseSrc
 			} else {
 				log.Printf("recent pitcher stats loaded: %d players with data", len(recentPitStats))
@@ -843,7 +851,8 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		if len(dr.hitterBreakdowns) > 0 {
 			fmt.Println()
 			fmt.Println("  Hitter Blend Breakdown ──────────────────────────────────────────────")
-			fmt.Println("    Player              Steamer  Recent  Wt(S/R)     Blended  GP")
+			projLabel := projDisplayName[projectionSystem]
+			fmt.Printf("    Player              %-8s Recent  Wt(S/R)     Blended  GP\n", projLabel)
 			fmt.Println("  ────────────────────────────────────────────────────────────────────")
 			for _, sp := range dr.hitterResult.Scored {
 				bd, ok := dr.hitterBreakdowns[sp.Player.ID]
