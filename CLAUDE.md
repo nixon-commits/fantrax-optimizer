@@ -17,6 +17,7 @@ go run . optimize --dry-run --matchup    # test remaining days in current matchu
 go run . prospects --dry-run  # run prospect report locally
 go run . gs-check --dry-run --force  # check GS violations for most recent period
 go run . gs-check --dry-run          # check GS violations (only if yesterday ended a period)
+go run . serve --port 8080           # start web GUI server (default port 8080)
 ```
 
 Tests require no credentials — all network dependencies are mocked via interfaces or test servers.
@@ -60,6 +61,12 @@ fangraphs proj  ──┘
 **`internal/gscheck`** — league-wide GS violation checker. `RunGSCheck` fetches all scoring periods and teams via `getStandings`, iterates every team to tally active-slot pitcher GS for a completed period, detects violations (GS > cap), and sends a Pushover notification. The `gs-check` CLI command validates that `GS_CAP`, `PUSHOVER_USER_KEY`, and `PUSHOVER_API_TOKEN` are set before running.
 
 **`internal/notify`** — notification helpers. `SendPushover` sends push notifications via the Pushover API. Self-contained function taking explicit parameters (no config dependency).
+
+**`internal/pipeline`** — extracted single-date optimization pipeline used by the web GUI. `Run(Input)` handles config loading, client creation, data fetching, projection chain construction, and optimization — returning a `Result` with per-player `HitterDetail` and `PitcherDetail` including blend breakdowns, park factors, and matchup multipliers. Shares the same internal packages as `cmd/optimize.go` but does not modify lineups (always dry-run).
+
+**`internal/server`** — HTTP server for the web GUI. Serves embedded static files and REST API endpoints (`/api/projections`, `/api/blend-curve`, `/api/lineup-diff`). Uses `sync.Mutex`-protected in-memory cache with 5-minute TTL for pipeline results.
+
+**`web/`** — embedded static frontend files (HTML/JS/CSS). Uses vanilla JS with Chart.js (CDN) for blend weight regression curves. Three views: projection breakdown table, blend weight curves with roster player scatter overlay, and lineup optimization diff.
 
 **`internal/roster`** — `CheckRoster` scans the full roster for slot mismatches (healthy players in IL, called-up players in Minors, injured/minor-leaguers in active slots). Suppresses alerts when IL/Minors slots are full. Separate from prospect report — this is about current roster hygiene.
 

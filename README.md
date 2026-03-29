@@ -66,9 +66,22 @@ rosterbot gs-check --dry-run --force
 
 # Print league scoring weights
 rosterbot scoring
+
+# Start web GUI for projection visualization
+rosterbot serve --port 8080
 ```
 
 Remove `--dry-run` to apply changes.
+
+### Web GUI
+
+The `serve` command starts a local web server with an interactive dashboard for exploring projection data:
+
+- **Projections table** — Per-player breakdown showing Steamer projection, recent FP/G, blend weights, park factor, matchup adjustment, and final blended score
+- **Blend curves** — Interactive chart showing how PA-based regression weights shift from Steamer toward recent stats as games played increase, with your roster players plotted on the curve
+- **Lineup diff** — Side-by-side view of current vs optimized lineup with point deltas and change details
+
+The server uses the same projection pipeline as the optimizer and caches results for 5 minutes. Requires the same env vars as the optimize command.
 
 ## How the Optimizer Works
 

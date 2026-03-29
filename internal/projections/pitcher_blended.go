@@ -96,6 +96,11 @@ func PitcherBlendWeightsForDisplay(gamesPlayed int, isSP bool) (steamerPct, seas
 	return pitcherBlendWeights(gamesPlayed, isSP)
 }
 
+// RecentStats returns the recent stats map for external access.
+func (b *PitcherBlendedSource) RecentStats() map[string]fantrax.RecentStat {
+	return b.recent
+}
+
 // isSPEligible returns true if the player has SP position eligibility.
 func isSPEligible(positions []string) bool {
 	for _, pos := range positions {

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rosterbot</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+    <header>
+        <h1>Rosterbot</h1>
+        <div class="controls">
+            <input type="date" id="date-picker">
+            <button id="refresh-btn" title="Refresh data">Refresh</button>
+        </div>
+    </header>
+
+    <nav class="tabs">
+        <button class="tab active" data-tab="projections">Projections</button>
+        <button class="tab" data-tab="blend-curves">Blend Curves</button>
+        <button class="tab" data-tab="lineup-diff">Lineup Diff</button>
+    </nav>
+
+    <main>
+        <div id="loading" class="loading hidden">Loading...</div>
+        <div id="warnings" class="warnings hidden"></div>
+
+        <section id="projections" class="tab-content active">
+            <h2>Hitters</h2>
+            <div class="table-wrap">
+                <table id="hitter-table">
+                    <thead>
+                        <tr>
+                            <th data-sort="name">Player</th>
+                            <th data-sort="team">Team</th>
+                            <th data-sort="slot">Slot</th>
+                            <th data-sort="steamer" class="num">Steamer</th>
+                            <th data-sort="recent" class="num">Recent</th>
+                            <th data-sort="steamerWt" class="num">Wt(S)</th>
+                            <th data-sort="recentWt" class="num">Wt(R)</th>
+                            <th data-sort="blended" class="num">Blended</th>
+                            <th data-sort="park" class="num">Park</th>
+                            <th data-sort="matchup" class="num">Matchup</th>
+                            <th data-sort="final" class="num">Final</th>
+                            <th data-sort="game">Game</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <h2>Pitchers</h2>
+            <div class="table-wrap">
+                <table id="pitcher-table">
+                    <thead>
+                        <tr>
+                            <th data-sort="name">Player</th>
+                            <th data-sort="team">Team</th>
+                            <th data-sort="slot">Slot</th>
+                            <th data-sort="steamer" class="num">Steamer</th>
+                            <th data-sort="recent" class="num">Recent</th>
+                            <th data-sort="steamerWt" class="num">Wt(S)</th>
+                            <th data-sort="recentWt" class="num">Wt(R)</th>
+                            <th data-sort="blended" class="num">Blended</th>
+                            <th data-sort="role">Role</th>
+                            <th data-sort="game">Game</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="blend-curves" class="tab-content hidden">
+            <div class="chart-container">
+                <canvas id="blend-chart"></canvas>
+            </div>
+            <div id="blend-legend" class="blend-legend"></div>
+        </section>
+
+        <section id="lineup-diff" class="tab-content hidden">
+            <div id="diff-summary" class="diff-summary"></div>
+            <div class="diff-columns">
+                <div class="diff-col">
+                    <h3>Current Lineup</h3>
+                    <div id="current-lineup"></div>
+                </div>
+                <div class="diff-col">
+                    <h3>Optimized Lineup</h3>
+                    <div id="optimized-lineup"></div>
+                </div>
+            </div>
+            <div id="changes-list" class="changes-list"></div>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -100,3 +100,26 @@ func (s *MatchupAdjustedSource) GetPtsPerGame(name, mlbTeam string, scoring fant
 	combined := math.Max(combinedMultMin, math.Min(combinedMultMax, platoonMult*qualityMult))
 	return basePts * combined, true
 }
+
+// MatchupMultiplier returns the combined platoon + quality multiplier for a player.
+// Returns 1.0 when no opposing pitcher data or handedness is available.
+func (s *MatchupAdjustedSource) MatchupMultiplier(name, mlbTeam string) float64 {
+	opp, oppOK := s.opposingPitchers[mlbTeam]
+	if !oppOK {
+		return 1.0
+	}
+
+	platoonMult := 1.0
+	if bats, batsOK := s.hitterBats[NormalizeName(name)]; batsOK && opp.Throws != "" {
+		if bats != "S" && bats == opp.Throws {
+			platoonMult = unfavorablePlatoonMult
+		}
+	}
+
+	qualityMult := 1.0
+	if s.leagueAvgFIP > 0 && opp.FIP > 0 {
+		qualityMult = math.Max(qualityMultMin, math.Min(qualityMultMax, opp.FIP/s.leagueAvgFIP))
+	}
+
+	return math.Max(combinedMultMin, math.Min(combinedMultMax, platoonMult*qualityMult))
+}
