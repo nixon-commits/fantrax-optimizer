@@ -111,7 +111,7 @@ func (c *FileCache[T]) save(path string, data T) error {
 		Data:      data,
 	}
 
-	b, err := json.MarshalIndent(env, "", "  ")
+	b, err := json.Marshal(env)
 	if err != nil {
 		return err
 	}

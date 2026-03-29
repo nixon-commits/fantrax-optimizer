@@ -138,17 +138,21 @@ func (p *panicSource) GetTopProspects(season int) ([]RankedProspect, error) {
 
 func TestLoadRankings_UsesCacheWhenFresh(t *testing.T) {
 	tmpDir := t.TempDir()
-	origFile := rankingsCacheFile
-	rankingsCacheFile = filepath.Join(tmpDir, "rankings.json")
-	defer func() { rankingsCacheFile = origFile }()
+	origDir := loadRankingsCacheDir
+	loadRankingsCacheDir = tmpDir
+	defer func() { loadRankingsCacheDir = origDir }()
 
-	cached := rankingsCache{
-		FetchedAt: time.Now(),
-		Prospects: []RankedProspect{{Name: "cached player", Rank: 5}},
+	// Pre-populate cache using the same envelope format as cache.FileCache.
+	type envelope struct {
+		FetchedAt time.Time        `json:"fetched_at"`
+		Data      []RankedProspect `json:"data"`
 	}
-	data, _ := json.Marshal(cached)
-	os.MkdirAll(filepath.Dir(rankingsCacheFile), 0o755)
-	os.WriteFile(rankingsCacheFile, data, 0o644)
+	env := envelope{
+		FetchedAt: time.Now(),
+		Data:      []RankedProspect{{Name: "cached player", Rank: 5}},
+	}
+	data, _ := json.Marshal(env)
+	os.WriteFile(filepath.Join(tmpDir, "rankings.json"), data, 0o644)
 
 	result, err := LoadRankings(&panicSource{}, 2026, 24)
 	if err != nil {
@@ -161,17 +165,21 @@ func TestLoadRankings_UsesCacheWhenFresh(t *testing.T) {
 
 func TestLoadRankings_FetchesWhenStale(t *testing.T) {
 	tmpDir := t.TempDir()
-	origFile := rankingsCacheFile
-	rankingsCacheFile = filepath.Join(tmpDir, "rankings.json")
-	defer func() { rankingsCacheFile = origFile }()
+	origDir := loadRankingsCacheDir
+	loadRankingsCacheDir = tmpDir
+	defer func() { loadRankingsCacheDir = origDir }()
 
-	cached := rankingsCache{
-		FetchedAt: time.Now().Add(-48 * time.Hour),
-		Prospects: []RankedProspect{{Name: "old player", Rank: 99}},
+	// Pre-populate with stale cache entry.
+	type envelope struct {
+		FetchedAt time.Time        `json:"fetched_at"`
+		Data      []RankedProspect `json:"data"`
 	}
-	data, _ := json.Marshal(cached)
-	os.MkdirAll(filepath.Dir(rankingsCacheFile), 0o755)
-	os.WriteFile(rankingsCacheFile, data, 0o644)
+	env := envelope{
+		FetchedAt: time.Now().Add(-48 * time.Hour),
+		Data:      []RankedProspect{{Name: "old player", Rank: 99}},
+	}
+	data, _ := json.Marshal(env)
+	os.WriteFile(filepath.Join(tmpDir, "rankings.json"), data, 0o644)
 
 	fresh := []RankedProspect{{Name: "fresh player", Rank: 1}}
 	src := &succeedingSource{prospects: fresh}

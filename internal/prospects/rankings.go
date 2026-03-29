@@ -5,13 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/nixon-commits/rosterbot/internal/cache"
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/nixon-commits/rosterbot/internal/projections"
 )
@@ -171,69 +170,17 @@ func (c *ChainedRankingSource) GetTopProspects(season int) ([]RankedProspect, er
 }
 
 // ---------------------------------------------------------------------------
-// 4. Cache helpers
+// 4. LoadRankings
 // ---------------------------------------------------------------------------
 
-var rankingsCacheFile = ".cache/rankings.json"
+var loadRankingsCacheDir = ".cache"
 
-type rankingsCache struct {
-	FetchedAt time.Time        `json:"fetched_at"`
-	Prospects []RankedProspect `json:"prospects"`
-}
-
-func loadRankingsCache(maxAge time.Duration) []RankedProspect {
-	data, err := os.ReadFile(rankingsCacheFile)
-	if err != nil {
-		return nil
-	}
-	var c rankingsCache
-	if err := json.Unmarshal(data, &c); err != nil {
-		return nil
-	}
-	if time.Since(c.FetchedAt) > maxAge {
-		return nil
-	}
-	return c.Prospects
-}
-
-func saveRankingsCache(prospects []RankedProspect) error {
-	dir := filepath.Dir(rankingsCacheFile)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	c := rankingsCache{
-		FetchedAt: time.Now(),
-		Prospects: prospects,
-	}
-	data, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(rankingsCacheFile, data, 0o644)
-}
-
-// ---------------------------------------------------------------------------
-// 5. LoadRankings
-// ---------------------------------------------------------------------------
-
-// LoadRankings returns prospect rankings, using a cache when fresh.
+// LoadRankings returns prospect rankings, using a file cache when fresh.
 func LoadRankings(source RankingSource, season int, cacheHours int) ([]RankedProspect, error) {
-	maxAge := time.Duration(cacheHours) * time.Hour
-	if cached := loadRankingsCache(maxAge); cached != nil {
-		return cached, nil
-	}
-
-	prospects, err := source.GetTopProspects(season)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := saveRankingsCache(prospects); err != nil {
-		// Non-fatal: log but don't fail
-		fmt.Fprintf(os.Stderr, "warning: failed to save rankings cache: %v\n", err)
-	}
-
-	return prospects, nil
+	c := cache.New[[]RankedProspect](loadRankingsCacheDir, time.Duration(cacheHours)*time.Hour)
+	return c.Get("rankings", func() ([]RankedProspect, error) {
+		return source.GetTopProspects(season)
+	})
 }
 
 // ---------------------------------------------------------------------------

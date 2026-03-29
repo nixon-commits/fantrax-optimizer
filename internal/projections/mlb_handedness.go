@@ -105,8 +105,7 @@ type HandednessData struct {
 
 // FetchMLBHandednessCached is like FetchMLBHandedness but uses a file cache.
 // Uses a single stable cache key since handedness data is player-intrinsic and
-// doesn't vary by projection system. On cache hit, if all requested IDs are
-// already covered, returns cached data without re-fetching.
+// doesn't vary by projection system.
 func FetchMLBHandednessCached(mlbamIDs map[string]int, cacheDir string, ttl time.Duration) (map[string]string, map[string]string, error) {
 	c := cache.New[HandednessData](cacheDir, ttl)
 	key := cache.Key("mlb-handedness")

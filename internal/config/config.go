@@ -9,6 +9,23 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// envIntWithFallback reads primary env var first, then falls back to deprecated.
+// Prints a warning to stderr if the deprecated var is used.
+func envIntWithFallback(primary, deprecated string, fallback int) int {
+	if s := os.Getenv(primary); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			return v
+		}
+	}
+	if s := os.Getenv(deprecated); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			fmt.Fprintf(os.Stderr, "WARNING: %s is deprecated, use %s instead\n", deprecated, primary)
+			return v
+		}
+	}
+	return fallback
+}
+
 type Config struct {
 	Username     string
 	Password     string
@@ -16,10 +33,10 @@ type Config struct {
 	TeamID       string
 	DryRun       bool
 	Dates        []time.Time
-	ILSlots      int
-	MinorsSlots  int
-	GSLimit      int // max game starts per matchup week (0 = no limit)
-	BlendMinGP   int // min games played before blending recent stats (default 2)
+	ILSlots     int
+	MinorsSlots int
+	GSCap       int // max game starts per matchup week (0 = no limit); also used by gs-check
+	BlendMinGP  int // min games played before blending recent stats (default 2)
 
 	// Prospect report settings (all optional, with defaults).
 	ProspectRollingDays    int
@@ -28,7 +45,6 @@ type Config struct {
 	ProspectRankThreshold  int
 
 	// GS-check settings (all optional; validated by the gs-check command).
-	GSCap            int    // league-wide GS cap per scoring period
 	PushoverUserKey  string // Pushover user key for push notifications
 	PushoverAPIToken string // Pushover app API token
 }
@@ -46,15 +62,14 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 		Dates:       dates,
 		ILSlots:     envInt("FANTRAX_IL_SLOTS", 0),
 		MinorsSlots: envInt("FANTRAX_MINORS_SLOTS", 0),
-		GSLimit:     envInt("FANTRAX_GS", 0),
-		BlendMinGP:  envInt("BLEND_MIN_GP", 2),
+		GSCap:      envIntWithFallback("GS_CAP", "FANTRAX_GS", 0),
+		BlendMinGP: envInt("BLEND_MIN_GP", 2),
 
 		ProspectRollingDays:    envInt("PROSPECT_ROLLING_DAYS", 14),
 		ProspectMinGames:       envInt("PROSPECT_MIN_GAMES", 8),
 		ProspectRankCacheHours: envInt("PROSPECT_RANK_CACHE_HOURS", 168),
 		ProspectRankThreshold:  envInt("PROSPECT_UPGRADE_RANK_THRESHOLD", 20),
 
-		GSCap:            envInt("GS_CAP", 0),
 		PushoverUserKey:  os.Getenv("PUSHOVER_USER_KEY"),
 		PushoverAPIToken: os.Getenv("PUSHOVER_API_TOKEN"),
 	}

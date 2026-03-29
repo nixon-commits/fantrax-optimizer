@@ -84,7 +84,7 @@ Players whose team isn't playing, who are confirmed out of the real-life MLB sta
 
 ### Pitcher Optimization
 
-Pitchers are scored based on probable starter data. SPs confirmed as starters get full value. SPs not listed as probable starters get a 0.10x discount so RPs are preferred for limited P slots. When a weekly GS limit is set (`FANTRAX_GS`), the GS budget gate allocates starts proportionally across the matchup period, keeping the highest-value starters.
+Pitchers are scored based on probable starter data. SPs confirmed as starters get full value. SPs not listed as probable starters get a 0.10x discount so RPs are preferred for limited P slots. When a weekly GS limit is set (`GS_CAP`), the GS budget gate allocates starts proportionally across the matchup period, keeping the highest-value starters.
 
 ### Projection Blending
 
@@ -104,7 +104,7 @@ Park factors (via Statcast) and matchup adjustments (opposing pitcher FIP + plat
 
 | Env Var | Default | Description |
 |---|---|---|
-| `FANTRAX_GS` | 0 (disabled) | Weekly game-start limit per matchup period |
+| `GS_CAP` | 0 (disabled) | Game-start cap — used by optimizer (weekly GS budget) and gs-check (violation detection) |
 | `FANTRAX_COOKIES` | — | Raw `FX_RM` cookie value to skip browser login |
 | `PROSPECT_ROLLING_DAYS` | 14 | Days of MiLB stats for breakout detection |
 | `PROSPECT_MIN_GAMES` | 8 | Minimum games for prospect breakout eligibility |

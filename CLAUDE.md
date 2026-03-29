@@ -19,15 +19,15 @@ go run . gs-check --dry-run --force  # check GS violations for most recent perio
 go run . gs-check --dry-run          # check GS violations (only if yesterday ended a period)
 ```
 
-After making code changes, always run `go vet ./...` and `go mod tidy` to catch issues early.
+After making code changes, always run `go vet ./...` and `go mod tidy` to catch issues early. Note: `gofmt` and `go vet` run automatically via PostToolUse hooks on every Edit/Write.
 
 Tests require no credentials — all network dependencies are mocked via interfaces or test servers.
 
 For local dev, create a `.env` file (gitignored) with `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Loaded automatically by `godotenv`.
 
-Optional env vars with defaults: `FANTRAX_GS` (0 = no limit) — weekly game-start limit per matchup period. `PROSPECT_ROLLING_DAYS` (14), `PROSPECT_MIN_GAMES` (8), `PROSPECT_RANK_CACHE_HOURS` (168), `PROSPECT_UPGRADE_RANK_THRESHOLD` (20).
+Optional env vars with defaults: `GS_CAP` (0 = no limit) — game-start cap used by both the optimizer (weekly GS budget) and gs-check (league-wide violation detection). `PROSPECT_ROLLING_DAYS` (14), `PROSPECT_MIN_GAMES` (8), `PROSPECT_RANK_CACHE_HOURS` (168), `PROSPECT_UPGRADE_RANK_THRESHOLD` (20).
 
-GS-check env vars (required only for `gs-check` command): `GS_CAP` (league-wide GS cap per scoring period), `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN`.
+GS-check env vars (required only for `gs-check` command): `GS_CAP`, `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN`.
 
 ## Architecture
 
@@ -75,7 +75,7 @@ fangraphs proj  ──┘
 
 **Scoring model** — this league scores: `1B`, `2B`, `3B`, `HR`, `RBI`, `R`, `BB`, `SB`, `CS`, `HBP`, `SO`, `GIDP`, `XBH`, `TB`, `CYC`. The `expectedPts` function derives `1B = H - 2B - 3B - HR`, `XBH = 2B + 3B + HR`, `TB = 1B + 2×2B + 3×3B + 4×HR` before applying weights.
 
-**GS budget** — weekly game-start limit awareness (`FANTRAX_GS` env var, 0 = disabled). When enabled, the pitcher optimizer gates SP starts to avoid exhausting the weekly GS allocation on low-value starters while better aces pitch later in the matchup week.
+**GS budget** — weekly game-start limit awareness (`GS_CAP` env var, 0 = disabled). When enabled, the pitcher optimizer gates SP starts to avoid exhausting the weekly GS allocation on low-value starters while better aces pitch later in the matchup week.
 - **Matchup week boundaries** derived from `GetAllMatchups()`: consecutive daily scoring periods where the team faces the same opponent form a matchup week. Computed in `fantrax/matchup_weeks.go` via `MatchupWeekBounds`.
 - **Past GS counting**: for each past day in the current matchup week, the `ProbableStarters` API is checked to count how many rostered SPs started.
 - **Future demand forecasting** uses a hybrid approach: days with confirmed probable starters use exact counts; days without probables estimate `roster SPs whose team plays / 5` (standard 5-man rotation).
@@ -108,6 +108,6 @@ When adding new commands, flags, env vars, or changing architecture, update `REA
 
 ## GHA
 
-`.github/workflows/lineup.yml` runs daily at 10am UTC (6am ET) and on `workflow_dispatch`. Requires six repository secrets: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Optional: `FANTRAX_GS` (weekly GS limit). Chrome is installed via `browser-actions/setup-chrome@v2` before the Go run step.
+`.github/workflows/lineup.yml` runs daily at 10am UTC (6am ET) and on `workflow_dispatch`. Requires six repository secrets: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Optional: `GS_CAP` (game-start cap). Chrome is installed via `browser-actions/setup-chrome@v2` before the Go run step.
 
 `.github/workflows/gs-check.yml` runs daily at 12pm UTC (8am ET) and on `workflow_dispatch` (with `force` and `dry_run` inputs). Checks league-wide GS violations at period end. Additional secret: `GS_CAP`.
