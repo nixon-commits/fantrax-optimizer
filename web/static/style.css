@@ -51,6 +51,16 @@ header h1 {
     font-size: 0.85rem;
 }
 
+.controls select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.85rem;
+    cursor: pointer;
+}
+
 .controls button {
     background: var(--accent);
     color: var(--bg);
@@ -107,6 +117,14 @@ main {
 }
 
 /* Warnings */
+.projection-system {
+    color: var(--accent);
+    font-size: 0.95rem;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+    text-transform: capitalize;
+}
+
 .warnings {
     background: rgba(255, 167, 38, 0.1);
     border: 1px solid var(--yellow);
@@ -176,6 +194,12 @@ td.num { text-align: right; font-variant-numeric: tabular-nums; }
 td.positive { color: var(--green); }
 td.negative { color: var(--red); }
 td.neutral { color: var(--text-dim); }
+
+/* Compare table */
+.compare-best { color: var(--green); font-weight: 600; }
+.compare-worst { color: var(--red); }
+.compare-sys-header { color: var(--accent); text-align: center !important; }
+.compare-sys-header[colspan] { border-left: 2px solid var(--border); }
 
 /* Blend curves chart */
 .chart-container {

@@ -4,6 +4,7 @@
     'use strict';
 
     const datePicker = document.getElementById('date-picker');
+    const projPicker = document.getElementById('proj-picker');
     const refreshBtn = document.getElementById('refresh-btn');
     const loadingEl = document.getElementById('loading');
     const warningsEl = document.getElementById('warnings');
@@ -15,32 +16,14 @@
     // Default date to today.
     datePicker.value = new Date().toISOString().slice(0, 10);
 
-    // --- Tab switching ---
-    document.querySelectorAll('.tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            tab.classList.add('active');
-            const target = document.getElementById(tab.dataset.tab);
-            if (target) target.classList.add('active');
-            loadTab(tab.dataset.tab);
-        });
-    });
-
-    refreshBtn.addEventListener('click', () => {
-        cachedData = {};
-        loadTab(activeTab());
-    });
-
-    datePicker.addEventListener('change', () => {
-        cachedData = {};
-        loadTab(activeTab());
-    });
-
+    // --- Helpers ---
     function activeTab() {
         const active = document.querySelector('.tab.active');
         return active ? active.dataset.tab : 'projections';
     }
+
+    function selectedProj() { return projPicker.value; }
+    function selectedDate() { return datePicker.value; }
 
     function showLoading() { loadingEl.classList.remove('hidden'); }
     function hideLoading() { loadingEl.classList.add('hidden'); }
@@ -70,6 +53,11 @@
         return Math.round(n * 100) + '%';
     }
 
+    // Build query string with date and projections params.
+    function apiParams() {
+        return 'date=' + selectedDate() + '&projections=' + selectedProj();
+    }
+
     // --- API calls ---
     async function fetchAPI(path) {
         const resp = await fetch(path);
@@ -80,10 +68,40 @@
         return resp.json();
     }
 
-    // --- Load tab data ---
+    // --- Tab switching ---
+    document.querySelectorAll('.tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            tab.classList.add('active');
+            const target = document.getElementById(tab.dataset.tab);
+            if (target) target.classList.add('active');
+            loadTab(tab.dataset.tab);
+        });
+    });
+
+    refreshBtn.addEventListener('click', () => {
+        cachedData = {};
+        loadTab(activeTab());
+    });
+
+    datePicker.addEventListener('change', () => {
+        cachedData = {};
+        loadTab(activeTab());
+    });
+
+    projPicker.addEventListener('change', () => {
+        // Keep compare cache (it fetches all systems), clear per-system caches.
+        Object.keys(cachedData).forEach(k => {
+            if (!k.startsWith('compare-')) delete cachedData[k];
+        });
+        loadTab(activeTab());
+    });
+
     function loadTab(tab) {
         switch(tab) {
             case 'projections': loadProjections(); break;
+            case 'compare': loadCompare(); break;
             case 'blend-curves': loadBlendCurves(); break;
             case 'lineup-diff': loadLineupDiff(); break;
         }
@@ -91,8 +109,7 @@
 
     // --- Projections tab ---
     async function loadProjections() {
-        const date = datePicker.value;
-        const cacheKey = 'proj-' + date;
+        const cacheKey = 'proj-' + selectedProj() + '-' + selectedDate();
         if (cachedData[cacheKey]) {
             renderProjections(cachedData[cacheKey]);
             return;
@@ -100,7 +117,7 @@
 
         showLoading();
         try {
-            const data = await fetchAPI('/api/projections?date=' + date);
+            const data = await fetchAPI('/api/projections?' + apiParams());
             cachedData[cacheKey] = data;
             renderProjections(data);
         } catch(e) {
@@ -113,12 +130,24 @@
         hideLoading();
         showWarnings(data.warnings);
 
-        renderHitterTable(data.hitters || []);
-        renderPitcherTable(data.pitchers || []);
+        const sysEl = document.getElementById('projection-system');
+        if (data.projectionSystem) {
+            sysEl.textContent = 'Projections: ' + data.projectionSystem;
+            sysEl.classList.remove('hidden');
+        } else {
+            sysEl.classList.add('hidden');
+        }
+
+        renderHitterTable(data.hitters || [], data.projectionSystem);
+        renderPitcherTable(data.pitchers || [], data.projectionSystem);
     }
 
-    function renderHitterTable(hitters) {
-        const tbody = document.querySelector('#hitter-table tbody');
+    function renderHitterTable(hitters, projSystem) {
+        const table = document.getElementById('hitter-table');
+        const projHeader = table.querySelector('th[data-sort="steamer"]');
+        if (projHeader && projSystem) projHeader.textContent = projSystem;
+
+        const tbody = table.querySelector('tbody');
         tbody.innerHTML = '';
 
         for (const h of hitters) {
@@ -153,8 +182,12 @@
         setupSorting('hitter-table', hitters);
     }
 
-    function renderPitcherTable(pitchers) {
-        const tbody = document.querySelector('#pitcher-table tbody');
+    function renderPitcherTable(pitchers, projSystem) {
+        const table = document.getElementById('pitcher-table');
+        const projHeader = table.querySelector('th[data-sort="steamer"]');
+        if (projHeader && projSystem) projHeader.textContent = projSystem;
+
+        const tbody = table.querySelector('tbody');
         tbody.innerHTML = '';
 
         for (const p of pitchers) {
@@ -195,21 +228,200 @@
         return 'neutral';
     }
 
+    // --- Compare tab ---
+    async function loadCompare() {
+        const date = selectedDate();
+        const cacheKey = 'compare-' + date;
+        if (cachedData[cacheKey]) {
+            renderCompare(cachedData[cacheKey]);
+            return;
+        }
+
+        showLoading();
+        try {
+            const data = await fetchAPI('/api/compare?date=' + date);
+            cachedData[cacheKey] = data;
+            renderCompare(data);
+        } catch(e) {
+            hideLoading();
+            showWarnings(['Failed to load comparison: ' + e.message]);
+        }
+    }
+
+    function renderCompare(data) {
+        hideLoading();
+
+        const systems = (data.systems || []).filter(s => !s.error);
+        if (systems.length === 0) {
+            showWarnings(['No projection systems returned data.']);
+            return;
+        }
+        showWarnings(null);
+
+        renderCompareHitters(systems);
+        renderComparePitchers(systems);
+    }
+
+    function renderCompareHitters(systems) {
+        const thead = document.getElementById('compare-hitter-head');
+        const tbody = document.querySelector('#compare-hitter-table tbody');
+
+        // Build header: Player | Team | [system: Proj  Blended  Final] ...
+        let headerHtml = '<th data-sort="name">Player</th><th data-sort="team">Team</th>';
+        for (const sys of systems) {
+            headerHtml += '<th class="compare-sys-header num" colspan="3">' + escapeHtml(sys.projectionSystem) + '</th>';
+        }
+        headerHtml += '<th class="num" data-sort="spread">Spread</th>';
+        thead.innerHTML = headerHtml;
+
+        // Build a player-keyed map: name → { system → hitter }
+        const playerMap = {};
+        const playerOrder = [];
+        for (const sys of systems) {
+            for (const h of (sys.hitters || [])) {
+                if (!playerMap[h.name]) {
+                    playerMap[h.name] = { team: h.team };
+                    playerOrder.push(h.name);
+                }
+                playerMap[h.name][sys.projectionSystem] = h;
+            }
+        }
+
+        tbody.innerHTML = '';
+        for (const name of playerOrder) {
+            const info = playerMap[name];
+            const tr = document.createElement('tr');
+
+            // Collect finalPts across systems for highlighting.
+            const finals = systems.map(sys => {
+                const h = info[sys.projectionSystem];
+                return h ? h.finalPts : null;
+            }).filter(v => v !== null);
+
+            const maxFinal = Math.max(...finals);
+            const minFinal = Math.min(...finals);
+            const spread = finals.length > 1 ? maxFinal - minFinal : 0;
+
+            let cells = '<td>' + escapeHtml(name) + '</td>' +
+                        '<td>' + escapeHtml(info.team) + '</td>';
+
+            for (const sys of systems) {
+                const h = info[sys.projectionSystem];
+                if (!h) {
+                    cells += '<td class="num">-</td><td class="num">-</td><td class="num">-</td>';
+                    continue;
+                }
+                const projCls = (finals.length > 1 && h.steamerPts === Math.max(...systems.map(s => (info[s.projectionSystem] || {}).steamerPts || 0))) ? ' compare-best' : '';
+                const blendCls = (finals.length > 1 && h.blendedPts === Math.max(...systems.map(s => (info[s.projectionSystem] || {}).blendedPts || 0))) ? ' compare-best' : '';
+                const finalBest = h.finalPts === maxFinal && finals.length > 1;
+                const finalWorst = h.finalPts === minFinal && finals.length > 1 && spread > 0.1;
+                const finalCls = finalBest ? ' compare-best' : (finalWorst ? ' compare-worst' : '');
+
+                cells += '<td class="num' + projCls + '">' + fmt(h.steamerPts) + '</td>';
+                cells += '<td class="num' + blendCls + '">' + fmt(h.blendedPts) + '</td>';
+                cells += '<td class="num' + finalCls + '"><strong>' + fmt(h.finalPts) + '</strong></td>';
+            }
+
+            const spreadCls = spread > 1.0 ? ' compare-worst' : (spread > 0.5 ? ' style="color: var(--yellow)"' : '');
+            if (spreadCls.startsWith(' style')) {
+                cells += '<td class="num"' + spreadCls + '>' + fmt(spread) + '</td>';
+            } else {
+                cells += '<td class="num' + spreadCls + '">' + fmt(spread) + '</td>';
+            }
+
+            tr.innerHTML = cells;
+            tbody.appendChild(tr);
+        }
+
+        setupSorting('compare-hitter-table', []);
+    }
+
+    function renderComparePitchers(systems) {
+        const thead = document.getElementById('compare-pitcher-head');
+        const tbody = document.querySelector('#compare-pitcher-table tbody');
+
+        let headerHtml = '<th data-sort="name">Player</th><th data-sort="team">Team</th><th>Role</th>';
+        for (const sys of systems) {
+            headerHtml += '<th class="compare-sys-header num" colspan="2">' + escapeHtml(sys.projectionSystem) + '</th>';
+        }
+        headerHtml += '<th class="num" data-sort="spread">Spread</th>';
+        thead.innerHTML = headerHtml;
+
+        const playerMap = {};
+        const playerOrder = [];
+        for (const sys of systems) {
+            for (const p of (sys.pitchers || [])) {
+                if (!playerMap[p.name]) {
+                    playerMap[p.name] = { team: p.team, isSP: p.isSP };
+                    playerOrder.push(p.name);
+                }
+                playerMap[p.name][sys.projectionSystem] = p;
+            }
+        }
+
+        tbody.innerHTML = '';
+        for (const name of playerOrder) {
+            const info = playerMap[name];
+            const tr = document.createElement('tr');
+
+            const exps = systems.map(sys => {
+                const p = info[sys.projectionSystem];
+                return p ? p.expectedPts : null;
+            }).filter(v => v !== null);
+
+            const maxExp = Math.max(...exps);
+            const minExp = Math.min(...exps);
+            const spread = exps.length > 1 ? maxExp - minExp : 0;
+
+            let cells = '<td>' + escapeHtml(name) + '</td>' +
+                        '<td>' + escapeHtml(info.team) + '</td>' +
+                        '<td>' + (info.isSP ? 'SP' : 'RP') + '</td>';
+
+            for (const sys of systems) {
+                const p = info[sys.projectionSystem];
+                if (!p) {
+                    cells += '<td class="num">-</td><td class="num">-</td>';
+                    continue;
+                }
+                const bestCls = p.expectedPts === maxExp && exps.length > 1 ? ' compare-best' : '';
+                const worstCls = p.expectedPts === minExp && exps.length > 1 && spread > 0.1 ? ' compare-worst' : '';
+                const cls = bestCls || worstCls;
+
+                cells += '<td class="num">' + fmt(p.steamerPts) + '</td>';
+                cells += '<td class="num' + cls + '"><strong>' + fmt(p.expectedPts) + '</strong></td>';
+            }
+
+            const spreadCls = spread > 2.0 ? ' compare-worst' : (spread > 1.0 ? ' style="color: var(--yellow)"' : '');
+            if (spreadCls.startsWith(' style')) {
+                cells += '<td class="num"' + spreadCls + '>' + fmt(spread) + '</td>';
+            } else {
+                cells += '<td class="num' + spreadCls + '">' + fmt(spread) + '</td>';
+            }
+
+            tr.innerHTML = cells;
+            tbody.appendChild(tr);
+        }
+
+        setupSorting('compare-pitcher-table', []);
+    }
+
     // --- Sorting ---
     function setupSorting(tableId, data) {
         const table = document.getElementById(tableId);
         table.querySelectorAll('thead th[data-sort]').forEach(th => {
-            th.addEventListener('click', () => {
-                const key = th.dataset.sort;
+            // Remove old listeners by cloning.
+            const clone = th.cloneNode(true);
+            th.parentNode.replaceChild(clone, th);
+            clone.addEventListener('click', () => {
+                const key = clone.dataset.sort;
                 const state = sortState[tableId] || {};
                 const dir = (state.key === key && state.dir === 'desc') ? 'asc' : 'desc';
                 sortState[tableId] = { key, dir };
 
-                // Update header classes
                 table.querySelectorAll('thead th').forEach(h => {
                     h.classList.remove('sorted-asc', 'sorted-desc');
                 });
-                th.classList.add(dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
+                clone.classList.add(dir === 'asc' ? 'sorted-asc' : 'sorted-desc');
 
                 sortTableRows(table, key, dir);
             });
@@ -224,17 +436,15 @@
         if (colIndex < 0) return;
 
         rows.sort((a, b) => {
-            let va = a.cells[colIndex].textContent.trim();
-            let vb = b.cells[colIndex].textContent.trim();
+            let va = a.cells[colIndex] ? a.cells[colIndex].textContent.trim() : '';
+            let vb = b.cells[colIndex] ? b.cells[colIndex].textContent.trim() : '';
 
-            // Try numeric
             const na = parseFloat(va.replace('%', ''));
             const nb = parseFloat(vb.replace('%', ''));
             if (!isNaN(na) && !isNaN(nb)) {
                 return dir === 'asc' ? na - nb : nb - na;
             }
 
-            // String sort
             return dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
         });
 
@@ -243,8 +453,7 @@
 
     // --- Blend Curves tab ---
     async function loadBlendCurves() {
-        const date = datePicker.value;
-        const cacheKey = 'blend-' + date;
+        const cacheKey = 'blend-' + selectedProj() + '-' + selectedDate();
         if (cachedData[cacheKey]) {
             renderBlendCurves(cachedData[cacheKey]);
             return;
@@ -252,7 +461,7 @@
 
         showLoading();
         try {
-            const data = await fetchAPI('/api/blend-curve?date=' + date);
+            const data = await fetchAPI('/api/blend-curve?' + apiParams());
             cachedData[cacheKey] = data;
             renderBlendCurves(data);
         } catch(e) {
@@ -306,7 +515,6 @@
             },
         ];
 
-        // Scatter overlay for roster players
         const colorMap = { hitter: '#4fc3f7', pitcherSP: '#66bb6a', pitcherRP: '#ffa726' };
         if (players.length > 0) {
             datasets.push({
@@ -360,7 +568,6 @@
             }
         });
 
-        // Legend with player dots
         const legendEl = document.getElementById('blend-legend');
         legendEl.innerHTML = players.map(p => {
             const color = colorMap[p.type] || '#fff';
@@ -371,8 +578,7 @@
 
     // --- Lineup Diff tab ---
     async function loadLineupDiff() {
-        const date = datePicker.value;
-        const cacheKey = 'diff-' + date;
+        const cacheKey = 'diff-' + selectedProj() + '-' + selectedDate();
         if (cachedData[cacheKey]) {
             renderLineupDiff(cachedData[cacheKey]);
             return;
@@ -380,7 +586,7 @@
 
         showLoading();
         try {
-            const data = await fetchAPI('/api/lineup-diff?date=' + date);
+            const data = await fetchAPI('/api/lineup-diff?' + apiParams());
             cachedData[cacheKey] = data;
             renderLineupDiff(data);
         } catch(e) {
@@ -404,11 +610,9 @@
             summary.innerHTML = changes.length + ' change(s) &mdash; <span class="' + cls + '">' + (delta >= 0 ? '+' : '') + fmt(delta) + ' pts</span>';
         }
 
-        // Current lineup
         renderDiffColumn('current-lineup', data.current, data.changedPlayerNames || []);
         renderDiffColumn('optimized-lineup', data.optimized, data.changedPlayerNames || []);
 
-        // Changes list
         const listEl = document.getElementById('changes-list');
         if (changes.length === 0) {
             listEl.innerHTML = '';

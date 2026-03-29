@@ -11,6 +11,11 @@
     <header>
         <h1>Rosterbot</h1>
         <div class="controls">
+            <select id="proj-picker">
+                <option value="depthcharts">DepthCharts</option>
+                <option value="steamer">Steamer</option>
+                <option value="thebatx">THE BAT X</option>
+            </select>
             <input type="date" id="date-picker">
             <button id="refresh-btn" title="Refresh data">Refresh</button>
         </div>
@@ -18,6 +23,7 @@
 
     <nav class="tabs">
         <button class="tab active" data-tab="projections">Projections</button>
+        <button class="tab" data-tab="compare">Compare</button>
         <button class="tab" data-tab="blend-curves">Blend Curves</button>
         <button class="tab" data-tab="lineup-diff">Lineup Diff</button>
     </nav>
@@ -27,6 +33,7 @@
         <div id="warnings" class="warnings hidden"></div>
 
         <section id="projections" class="tab-content active">
+            <div id="projection-system" class="projection-system"></div>
             <h2>Hitters</h2>
             <div class="table-wrap">
                 <table id="hitter-table">
@@ -72,14 +79,31 @@
             </div>
         </section>
 
-        <section id="blend-curves" class="tab-content hidden">
+        <section id="compare" class="tab-content">
+            <h2>Hitter Comparison</h2>
+            <div class="table-wrap">
+                <table id="compare-hitter-table">
+                    <thead><tr id="compare-hitter-head"></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            <h2>Pitcher Comparison</h2>
+            <div class="table-wrap">
+                <table id="compare-pitcher-table">
+                    <thead><tr id="compare-pitcher-head"></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section id="blend-curves" class="tab-content">
             <div class="chart-container">
                 <canvas id="blend-chart"></canvas>
             </div>
             <div id="blend-legend" class="blend-legend"></div>
         </section>
 
-        <section id="lineup-diff" class="tab-content hidden">
+        <section id="lineup-diff" class="tab-content">
             <div id="diff-summary" class="diff-summary"></div>
             <div class="diff-columns">
                 <div class="diff-col">

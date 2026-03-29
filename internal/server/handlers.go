@@ -2,7 +2,9 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"sync"
 
 	"github.com/nixon-commits/rosterbot/internal/pipeline"
 	"github.com/nixon-commits/rosterbot/internal/projections"
@@ -110,6 +112,36 @@ type changeJSON struct {
 	PtsDelta   float64 `json:"ptsDelta"`
 }
 
+type compareResponse struct {
+	Date    string               `json:"date"`
+	Systems []compareSystemEntry `json:"systems"`
+}
+
+type compareSystemEntry struct {
+	ProjectionSystem string            `json:"projectionSystem"`
+	Hitters          []compareHitter   `json:"hitters"`
+	Pitchers         []comparePitcher  `json:"pitchers"`
+	Error            string            `json:"error,omitempty"`
+}
+
+type compareHitter struct {
+	Name       string  `json:"name"`
+	Team       string  `json:"team"`
+	Positions  string  `json:"positions"`
+	SteamerPts float64 `json:"steamerPts"`
+	BlendedPts float64 `json:"blendedPts"`
+	FinalPts   float64 `json:"finalPts"`
+}
+
+type comparePitcher struct {
+	Name        string  `json:"name"`
+	Team        string  `json:"team"`
+	Positions   string  `json:"positions"`
+	SteamerPts  float64 `json:"steamerPts"`
+	ExpectedPts float64 `json:"expectedPts"`
+	IsSP        bool    `json:"isSP"`
+}
+
 // --- Handlers ---
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +150,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleProjections(w http.ResponseWriter, r *http.Request) {
 	date := r.URL.Query().Get("date")
-	result, err := s.getResult(date)
+	proj := r.URL.Query().Get("projections")
+	result, err := s.getResult(date, proj)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 		return
@@ -202,7 +235,8 @@ func (s *Server) handleBlendCurve(w http.ResponseWriter, r *http.Request) {
 
 	// Plot roster players from cached pipeline result (if available).
 	date := r.URL.Query().Get("date")
-	result, err := s.getResult(date)
+	proj := r.URL.Query().Get("projections")
+	result, err := s.getResult(date, proj)
 	if err == nil {
 		for _, h := range result.Hitters {
 			if h.Breakdown != nil && h.Breakdown.HasRecent {
@@ -237,7 +271,8 @@ func (s *Server) handleBlendCurve(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleLineupDiff(w http.ResponseWriter, r *http.Request) {
 	date := r.URL.Query().Get("date")
-	result, err := s.getResult(date)
+	proj := r.URL.Query().Get("projections")
+	result, err := s.getResult(date, proj)
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
 		return
@@ -351,6 +386,79 @@ func (s *Server) handleLineupDiff(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+var compareSystems = []string{
+	projections.ProjectionSteamer,
+	projections.ProjectionDepthCharts,
+	projections.ProjectionBatX,
+}
+
+func (s *Server) handleCompare(w http.ResponseWriter, r *http.Request) {
+	date := r.URL.Query().Get("date")
+
+	// Fetch all 3 projection systems concurrently.
+	entries := make([]compareSystemEntry, len(compareSystems))
+	var wg sync.WaitGroup
+	for i, sys := range compareSystems {
+		wg.Add(1)
+		go func(idx int, projSys string) {
+			defer wg.Done()
+			result, err := s.getResult(date, projSys)
+			if err != nil {
+				log.Printf("compare: %s failed: %v", projSys, err)
+				entries[idx] = compareSystemEntry{
+					ProjectionSystem: projSys,
+					Error:            err.Error(),
+				}
+				return
+			}
+			entry := compareSystemEntry{
+				ProjectionSystem: result.ProjectionSystem,
+			}
+			for _, h := range result.Hitters {
+				ch := compareHitter{
+					Name:      h.Player.Name,
+					Team:      h.Player.MLBTeam,
+					Positions: h.Player.PosShortNames,
+					FinalPts:  h.ExpectedPts,
+				}
+				if h.Breakdown != nil {
+					ch.SteamerPts = h.Breakdown.SteamerPts
+					ch.BlendedPts = h.Breakdown.BlendedPts
+				}
+				entry.Hitters = append(entry.Hitters, ch)
+			}
+			for _, p := range result.Pitchers {
+				entry.Pitchers = append(entry.Pitchers, comparePitcher{
+					Name:        p.Player.Name,
+					Team:        p.Player.MLBTeam,
+					Positions:   p.Player.PosShortNames,
+					SteamerPts:  p.SteamerPts,
+					ExpectedPts: p.ExpectedPts,
+					IsSP:        p.IsSP,
+				})
+			}
+			entries[idx] = entry
+		}(i, sys)
+	}
+	wg.Wait()
+
+	// Determine date from first successful result.
+	respDate := date
+	if respDate == "" {
+		for _, e := range entries {
+			if e.Error == "" && len(e.Hitters) > 0 {
+				// Use date from the pipeline run — fetched from getResult.
+				break
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, compareResponse{
+		Date:    respDate,
+		Systems: entries,
+	})
 }
 
 // --- Helpers ---

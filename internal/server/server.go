@@ -16,12 +16,16 @@ import (
 // Server serves the web GUI and API endpoints.
 type Server struct {
 	port             int
-	projectionSystem string
+	projectionSystem string // default projection system from CLI flag
 	mux              *http.ServeMux
 
-	mu     sync.Mutex
-	cache  *pipeline.Result
-	cached time.Time
+	mu    sync.Mutex
+	cache map[string]*cacheEntry // keyed by "projSystem|date"
+}
+
+type cacheEntry struct {
+	result *pipeline.Result
+	at     time.Time
 }
 
 const cacheTTL = 5 * time.Minute
@@ -32,6 +36,7 @@ func New(port int, projectionSystem string) *Server {
 		port:             port,
 		projectionSystem: projectionSystem,
 		mux:              http.NewServeMux(),
+		cache:            make(map[string]*cacheEntry),
 	}
 	s.routes()
 	return s
@@ -74,25 +79,30 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/projections", s.handleProjections)
 	s.mux.HandleFunc("/api/blend-curve", s.handleBlendCurve)
 	s.mux.HandleFunc("/api/lineup-diff", s.handleLineupDiff)
+	s.mux.HandleFunc("/api/compare", s.handleCompare)
 }
 
 // getResult returns a cached or fresh pipeline result.
-// Drops the lock during the network fetch so other requests (health, static files) aren't blocked.
-func (s *Server) getResult(date string) (*pipeline.Result, error) {
+// projSystem overrides the default if non-empty.
+// Drops the lock during the network fetch so other requests aren't blocked.
+func (s *Server) getResult(date, projSystem string) (*pipeline.Result, error) {
+	if projSystem == "" {
+		projSystem = s.projectionSystem
+	}
+	key := projSystem + "|" + date
+
 	// Check cache under lock.
 	s.mu.Lock()
-	if s.cache != nil && time.Since(s.cached) < cacheTTL {
-		if date == "" || s.cache.Date.Format("2006-01-02") == date {
-			result := s.cache
-			s.mu.Unlock()
-			return result, nil
-		}
+	if entry, ok := s.cache[key]; ok && time.Since(entry.at) < cacheTTL {
+		result := entry.result
+		s.mu.Unlock()
+		return result, nil
 	}
 	s.mu.Unlock()
 
 	// Build input outside the lock.
 	input := pipeline.Input{
-		ProjectionSystem: s.projectionSystem,
+		ProjectionSystem: projSystem,
 	}
 
 	if date != "" {
@@ -103,7 +113,7 @@ func (s *Server) getResult(date string) (*pipeline.Result, error) {
 		input.Date = t
 	}
 
-	log.Printf("fetching pipeline data for %s...", date)
+	log.Printf("fetching pipeline data for %s (%s)...", date, projSystem)
 	result, err := pipeline.Run(input)
 	if err != nil {
 		return nil, err
@@ -111,10 +121,9 @@ func (s *Server) getResult(date string) (*pipeline.Result, error) {
 
 	// Store result under lock.
 	s.mu.Lock()
-	s.cache = result
-	s.cached = time.Now()
+	s.cache[key] = &cacheEntry{result: result, at: time.Now()}
 	s.mu.Unlock()
 
-	log.Printf("pipeline data cached (expires %s)", s.cached.Add(cacheTTL).Format("15:04:05"))
+	log.Printf("pipeline data cached for %s (%s)", date, projSystem)
 	return result, nil
 }
