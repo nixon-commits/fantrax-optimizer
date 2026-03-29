@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 )
 
 // phaseWeight maps phase names to their completion percentage.
 var phaseWeight = map[string]int{
 	"Roster":       10,
 	"Projections":  30,
-	"Recent stats": 50,
-	"Pitcher info": 60,
+	"Recent stats": 40,
+	"Pitcher info": 55,
 	"Handedness":   70,
 	"Park factors": 80,
 	"GS budget":    90,
@@ -94,7 +95,7 @@ func (p *Progress) Finish() {
 }
 
 // Logf prints a log line only in verbose mode. No-op otherwise.
-func (p *Progress) Logf(format string, args ...interface{}) {
+func (p *Progress) Logf(format string, args ...any) {
 	if p.verbose {
 		log.Printf(format, args...)
 	}
@@ -145,18 +146,15 @@ func (p *Progress) finishInteractive() {
 func (p *Progress) drawBar() {
 	filled := p.pct / 5 // 20-char bar, each char = 5%
 	empty := 20 - filled
-	bar := ""
-	for i := 0; i < filled; i++ {
-		bar += "█"
-	}
-	for i := 0; i < empty; i++ {
-		bar += "░"
-	}
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
 	fmt.Fprintf(p.w, "  [%s] %d%%\r", bar, p.pct)
 }
 
+// barLineWidth is the maximum width of the progress bar line: "  [20-char bar] 100%"
+const barLineWidth = 32
+
 func (p *Progress) clearBar() {
-	fmt.Fprintf(p.w, "\r%s\r", "                                ")
+	fmt.Fprintf(p.w, "\r%s\r", strings.Repeat(" ", barLineWidth))
 }
 
 func (p *Progress) clearPrevLine() {

@@ -238,6 +238,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		fgSrc, err = projections.NewFanGraphsSourceCached(cacheDir, projTTL)
 	}
 	if err != nil {
+		prog.Finish()
 		msg := fmt.Sprintf("batting projections unavailable: %v", err)
 		sendOptimizeNotify(cfg.PushoverUserKey, cfg.PushoverAPIToken, msg)
 		return fmt.Errorf("batting projections unavailable: %w", err)
@@ -283,6 +284,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		fgPitSrc, err = projections.NewFanGraphsPitcherSourceCached(cacheDir, projTTL)
 	}
 	if err != nil {
+		prog.Finish()
 		msg := fmt.Sprintf("pitching projections unavailable: %v", err)
 		sendOptimizeNotify(cfg.PushoverUserKey, cfg.PushoverAPIToken, msg)
 		return fmt.Errorf("pitching projections unavailable: %w", err)

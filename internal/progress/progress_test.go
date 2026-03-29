@@ -12,32 +12,68 @@ import (
 
 // --- Non-interactive mode tests ---
 
-func TestNonInteractiveHeader(t *testing.T) {
+func captureLog(fn func()) string {
 	var buf bytes.Buffer
-	p := progress.New(false, &buf)
-	p.Header("Steamer", "2026-03-30", true)
-	// Non-interactive uses log.Printf, not the writer — just verify no panic.
+	log.SetOutput(&buf)
+	origFlags := log.Flags()
+	origPrefix := log.Prefix()
+	log.SetFlags(0)
+	log.SetPrefix("")
+	defer func() {
+		log.SetOutput(os.Stderr)
+		log.SetFlags(origFlags)
+		log.SetPrefix(origPrefix)
+	}()
+	fn()
+	return buf.String()
+}
+
+func TestNonInteractiveHeader(t *testing.T) {
+	p := progress.New(false, nil)
+	out := captureLog(func() { p.Header("Steamer", "2026-03-30", true) })
+
+	if !strings.Contains(out, "Steamer") {
+		t.Errorf("expected header to contain projection system, got: %s", out)
+	}
+	if !strings.Contains(out, "2026-03-30") {
+		t.Errorf("expected header to contain date, got: %s", out)
+	}
+	if !strings.Contains(out, "dry-run") {
+		t.Errorf("expected header to contain dry-run, got: %s", out)
+	}
 }
 
 func TestNonInteractiveHeaderNoDryRun(t *testing.T) {
-	var buf bytes.Buffer
-	p := progress.New(false, &buf)
-	p.Header("Steamer", "2026-03-30", false)
-	// Non-interactive uses log.Printf — verify no panic.
+	p := progress.New(false, nil)
+	out := captureLog(func() { p.Header("Steamer", "2026-03-30", false) })
+
+	if strings.Contains(out, "dry-run") {
+		t.Errorf("expected no dry-run in header, got: %s", out)
+	}
 }
 
 func TestNonInteractiveDone(t *testing.T) {
-	var buf bytes.Buffer
-	p := progress.New(false, &buf)
-	p.Done("Roster", "16 hitters (13 active)")
-	// Non-interactive uses log.Printf — verify no panic.
+	p := progress.New(false, nil)
+	out := captureLog(func() { p.Done("Roster", "16 hitters (13 active)") })
+
+	if !strings.Contains(out, "Roster") {
+		t.Errorf("expected phase name, got: %s", out)
+	}
+	if !strings.Contains(out, "16 hitters (13 active)") {
+		t.Errorf("expected detail, got: %s", out)
+	}
 }
 
 func TestNonInteractiveWarn(t *testing.T) {
-	var buf bytes.Buffer
-	p := progress.New(false, &buf)
-	p.Warn("Handedness", "unavailable — matchup adjustments disabled")
-	// Non-interactive uses log.Printf — verify no panic.
+	p := progress.New(false, nil)
+	out := captureLog(func() { p.Warn("Handedness", "unavailable — matchup adjustments disabled") })
+
+	if !strings.Contains(out, "WARNING") {
+		t.Errorf("expected WARNING prefix, got: %s", out)
+	}
+	if !strings.Contains(out, "Handedness") {
+		t.Errorf("expected phase name, got: %s", out)
+	}
 }
 
 func TestNonInteractiveStartIsNoOp(t *testing.T) {
