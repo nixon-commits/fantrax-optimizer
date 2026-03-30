@@ -14,7 +14,6 @@ var phaseWeight = map[string]int{
 	"Recent stats": 40,
 	"Pitcher info": 55,
 	"Handedness":   70,
-	"Park factors": 80,
 	"GS budget":    90,
 	"Optimize":     100,
 }

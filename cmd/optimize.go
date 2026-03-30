@@ -361,19 +361,6 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	multiDate := len(cfg.Dates) > 1
 	schedClient := schedule.NewClient()
 
-	// --- Fetch park factors from Statcast (shared across dates) ---
-	prog.Start("Park factors")
-	var parkFactors map[string]projections.ParkFactors
-	pf, err := schedClient.FetchParkFactorsWithFallbackCached(cacheDir, staticTTL)
-	if err != nil {
-		prog.Logf("WARNING: statcast park factors unavailable (%v) — using neutral park", err)
-		prog.Warn("Park factors", "unavailable — using neutral park")
-	} else {
-		parkFactors = pf
-		prog.Logf("statcast park factors loaded: %d parks", len(parkFactors))
-		prog.Done("Park factors", fmt.Sprintf("%d parks", len(parkFactors)))
-	}
-
 	// Get season start date for period calculation.
 	// If we already fetched the season range for --dates all, reuse seasonStart from above.
 	if !needsSeasonLookup {
@@ -523,7 +510,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		hitterResult     optimizer.Result
 		pitcherResult    optimizer.PitcherResult
 		warnings         []string
-		venues           map[string]string                            // team → home team (for park factor display)
+		venues           map[string]string                            // team → home team (for matchup adjustments)
 		benchedToday     map[string]bool                              // normalized names confirmed out of real-life lineup
 		hitterBreakdowns map[string]*projections.HitterBreakdown      // playerID → breakdown
 		hitterPipelines  map[string]*projections.HitterPipelineDetail // playerID → pipeline detail
@@ -590,7 +577,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				probableStarters = map[string]string{} // empty = default to start
 			}
 
-			// Fetch game venues for park factor and matchup adjustments.
+			// Fetch game venues for matchup adjustments.
 			var venues map[string]string
 			v, err := schedClient.GameVenues(date)
 			if err != nil {
@@ -616,14 +603,9 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				}
 			}
 
-			// Optimize hitters (with park factor adjustment if available).
+			// Optimize hitters (with matchup adjustment if available).
 			dateHitterSrc := hitterProjSrc
-			var parkSrc *projections.ParkAdjustedSource
 			var matchupSrc *projections.MatchupAdjustedSource
-			if venues != nil && parkFactors != nil {
-				parkSrc = projections.NewParkAdjustedSource(hitterProjSrc, parkFactors, venues)
-				dateHitterSrc = parkSrc
-			}
 
 			// Build opposing pitcher map for matchup adjustments.
 			if len(probableStarters) > 0 && leagueAvgFIP > 0 && venues != nil {
@@ -687,7 +669,6 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 						PlayerID:       sp.Player.ID,
 						MLBTeam:        sp.Player.MLBTeam,
 						BasePtsPerGame: projections.ExpectedPtsFromProj(proj, hitterScoring),
-						ParkMultiplier: 1.0,
 						PlatoonMult:    1.0,
 						QualityMult:    1.0,
 					}
@@ -704,17 +685,8 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 					}
 					pd.BlendDelta = pd.BlendedPtsPerGame - pd.BasePtsPerGame
 
-					// Stage 3: Park factor
-					if parkSrc != nil {
-						pd.ParkMultiplier = parkSrc.ComputeParkAdjustment(sp.Player.Name, sp.Player.MLBTeam, hitterScoring)
-						pd.ParkAdjPtsPerGame = pd.BlendedPtsPerGame * pd.ParkMultiplier
-					} else {
-						pd.ParkAdjPtsPerGame = pd.BlendedPtsPerGame
-					}
-					pd.ParkDelta = pd.ParkAdjPtsPerGame - pd.BlendedPtsPerGame
-
-					// Stage 4: Matchup (platoon + quality)
-					afterPlatoon := pd.ParkAdjPtsPerGame
+					// Stage 3: Matchup (platoon + quality)
+					afterPlatoon := pd.BlendedPtsPerGame
 					if matchupSrc != nil {
 						md := matchupSrc.GetMatchupDetail(sp.Player.Name, sp.Player.MLBTeam)
 						pd.PlatoonMult = md.PlatoonMult
@@ -723,12 +695,12 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 						pd.OpposingPitcher = md.OpposingPitcher
 						pd.OpposingFIP = md.OpposingFIP
 						pd.LeagueAvgFIP = md.LeagueAvgFIP
-						afterPlatoon = pd.ParkAdjPtsPerGame * md.PlatoonMult
-						pd.FinalPtsPerGame = pd.ParkAdjPtsPerGame * md.CombinedMult
+						afterPlatoon = pd.BlendedPtsPerGame * md.PlatoonMult
+						pd.FinalPtsPerGame = pd.BlendedPtsPerGame * md.CombinedMult
 					} else {
-						pd.FinalPtsPerGame = pd.ParkAdjPtsPerGame
+						pd.FinalPtsPerGame = pd.BlendedPtsPerGame
 					}
-					pd.PlatoonDelta = afterPlatoon - pd.ParkAdjPtsPerGame
+					pd.PlatoonDelta = afterPlatoon - pd.BlendedPtsPerGame
 					pd.QualityDelta = pd.FinalPtsPerGame - afterPlatoon
 
 					hitterPipelines[sp.Player.ID] = pd
@@ -988,22 +960,21 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			})
 
 			// Header — 7-char columns with 2-space gaps.
-			// Header row = "    %-19s  %7s×6│" = 4+19 + 6*(2+7) + 1 = 78 visible chars.
-			// Title/footer lines must also be 78 visible chars (including ╮/╯).
+			// Header row = "    %-19s  %7s×5│" = 4+19 + 5*(2+7) + 1 = 69 visible chars.
+			// Title/footer lines must also be 69 visible chars (including ╮/╯).
 			titlePrefix := "  Hitter Pipeline "
-			dashes := 78 - len(titlePrefix) - 1 // -1 for ╮
+			dashes := 69 - len(titlePrefix) - 1 // -1 for ╮
 			fmt.Printf("%s%s╮\n", titlePrefix, strings.Repeat("─", dashes))
-			fmt.Printf("    %-19s  %7s  %7s  %7s  %7s  %7s  %7s│\n",
-				"Player", "Base", "Blend", "Park", "Platoon", "Opp SP", "Final")
-			fmt.Printf("  %s╯\n", strings.Repeat("─", 78-2-1)) // -2 for indent, -1 for ╯
+			fmt.Printf("    %-19s  %7s  %7s  %7s  %7s  %7s│\n",
+				"Player", "Base", "Blend", "Platoon", "Opp SP", "Final")
+			fmt.Printf("  %s╯\n", strings.Repeat("─", 69-2-1)) // -2 for indent, -1 for ╯
 
 			for _, sp := range pipelineSorted {
 				pd := dr.hitterPipelines[sp.Player.ID]
-				fmt.Printf("    %-19s  %7.2f  %s  %s  %s  %s  %7.2f\n",
+				fmt.Printf("    %-19s  %7.2f  %s  %s  %s  %7.2f\n",
 					truncName(sp.Player.Name, 19),
 					pd.BasePtsPerGame,
 					colorDelta(pd.BlendDelta),
-					colorDelta(pd.ParkDelta),
 					colorDelta(pd.PlatoonDelta),
 					colorDelta(pd.QualityDelta),
 					pd.FinalPtsPerGame,

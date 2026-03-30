@@ -98,7 +98,7 @@ Projections blend FanGraphs season projections with recent Fantrax scoring data 
 
 Requires a minimum of 4 games played before recent stats are factored in. Falls back to 100% Steamer when no recent data is available.
 
-Park factors (via Statcast) and matchup adjustments (opposing pitcher FIP + platoon splits) are layered on top.
+Matchup adjustments (opposing pitcher FIP + platoon splits) are layered on top.
 
 ## Optional Configuration
 
