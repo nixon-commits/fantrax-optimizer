@@ -345,27 +345,20 @@ func TestGetMatchupDetail_AceQuality(t *testing.T) {
 	}
 }
 
-// TestMatchupAdjusted_FullChainComposability: stubSource → BlendedSource → ParkAdjustedSource → MatchupAdjustedSource.
-// LHH vs LHP, neutral FIP (4.00==4.00), unfavorable platoon → 0.93 reduction on park-adjusted value.
+// TestMatchupAdjusted_FullChainComposability: stubSource → BlendedSource → MatchupAdjustedSource.
+// LHH vs LHP, neutral FIP (4.00==4.00), unfavorable platoon → 0.93 reduction on blended value.
 func TestMatchupAdjusted_FullChainComposability(t *testing.T) {
 	innerProj := &stubSource{proj: map[string]*Projection{
 		"test player": {G: 100, H: 100, Singles: 60, Doubles: 20, Triples: 5, HR: 15, RBI: 50, R: 40, BB: 30},
 	}}
 	scoring := fantrax.ScoringWeights{"HR": 4.0, "1B": 1.0, "R": 1.0, "RBI": 1.0}
 
-	// Blended: no recent stats → falls back to 100% Steamer.
+	// Blended: no recent stats → falls back to 100% projection.
 	blended := NewBlendedSource(innerProj, map[string]fantrax.RecentStat{}, scoring,
 		map[string]string{}, 2)
 
-	// Neutral park (all factors 1.0) to isolate matchup adjustment.
-	parkFactors := map[string]ParkFactors{
-		"NYY": {Team: "NYY", HR: 1.0, H: 1.0, R: 1.0, BB: 1.0, SO: 1.0, H1B: 1.0, H2B: 1.0, H3B: 1.0},
-	}
-	venues := map[string]string{"NYY": "NYY"}
-	parkAdj := NewParkAdjustedSource(blended, parkFactors, venues)
-
 	matchupAdj := NewMatchupAdjustedSource(
-		parkAdj,
+		blended,
 		map[string]OpposingPitcher{
 			"NYY": {Name: "LH Pitcher", Team: "BOS", Throws: "L", FIP: 4.00},
 		},
@@ -373,14 +366,14 @@ func TestMatchupAdjusted_FullChainComposability(t *testing.T) {
 		4.00,
 	)
 
-	parkPts, _ := parkAdj.GetPtsPerGame("Test Player", "NYY", scoring)
+	blendedPts, _ := blended.GetPtsPerGame("Test Player", "NYY", scoring)
 	matchupPts, ok := matchupAdj.GetPtsPerGame("Test Player", "NYY", scoring)
 	if !ok {
 		t.Fatal("expected true")
 	}
 
-	expected := parkPts * 0.93
+	expected := blendedPts * 0.93
 	if math.Abs(matchupPts-expected) > 0.001 {
-		t.Errorf("full chain: expected parkPts*0.93=%.4f, got %.4f (parkPts=%.4f)", expected, matchupPts, parkPts)
+		t.Errorf("full chain: expected blendedPts*0.93=%.4f, got %.4f (blendedPts=%.4f)", expected, matchupPts, blendedPts)
 	}
 }
