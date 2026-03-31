@@ -3,6 +3,7 @@ package fantrax
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -10,6 +11,21 @@ import (
 	"github.com/pmurley/go-fantrax/auth_client"
 	"github.com/pmurley/go-fantrax/models"
 )
+
+// GetRecentTrades fetches all executed trades and returns those processed after since.
+func (c *Client) GetRecentTrades(since time.Time) ([]models.Transaction, error) {
+	all, err := c.auth.GetAllTrades()
+	if err != nil {
+		return nil, fmt.Errorf("fetch trades: %w", err)
+	}
+	var recent []models.Transaction
+	for _, tx := range all {
+		if tx.ProcessedDate.After(since) {
+			recent = append(recent, tx)
+		}
+	}
+	return recent, nil
+}
 
 // Player is a simplified view of a rostered hitter.
 type Player struct {
@@ -195,8 +211,9 @@ func (c *Client) GetMinorsRoster() ([]Player, error) {
 // ProspectPoolPlayer extends Player with fantasy ranking data from the Fantrax player pool.
 type ProspectPoolPlayer struct {
 	Player
-	FantraxRank     int // Fantrax overall player rank (lower = better)
-	PercentRostered float64
+	FantraxRank     int     // Fantrax overall player rank (lower = better)
+	PercentRostered float64 // % of leagues rostering this player
+	FantasyTeam     string  // fantasy team abbreviation ("FA", "W", or team abbr)
 	FantasyPtsPerG  float64
 }
 
@@ -226,6 +243,81 @@ func (c *Client) GetAvailableProspects() ([]Player, error) {
 	return players, nil
 }
 
+// GetPlayerPoolRaw returns a single raw page of the player pool API response.
+func (c *Client) GetPlayerPoolRaw(page int) (*models.PlayerPoolResponse, error) {
+	return c.auth.GetPlayerPoolRaw(auth_client.StatusFilterAll, page)
+}
+
+// GetFullPlayerPool returns all players from the Fantrax player pool with
+// FantasyStatus populated. The library's parser requires 10 cells but this
+// league returns 8, so we parse the raw response and patch the status field.
+func (c *Client) GetFullPlayerPool() ([]models.PoolPlayer, error) {
+	players, err := c.auth.GetPlayerPool(auth_client.WithStatusFilter(auth_client.StatusFilterAll))
+	if err != nil {
+		return nil, err
+	}
+
+	// The library populates FantasyStatus from cells[1] only when len(cells)>=10.
+	// This league returns 8 cells so FantasyStatus is empty. Re-parse from raw.
+	statusMap, err := c.buildStatusMap()
+	if err != nil {
+		return nil, err
+	}
+	for i := range players {
+		if s, ok := statusMap[players[i].PlayerID]; ok {
+			players[i].FantasyStatus = s.status
+			players[i].FantasyTeamID = s.teamID
+			players[i].PercentRostered = s.pctRostered
+		}
+	}
+	return players, nil
+}
+
+type playerStatus struct {
+	status      string
+	teamID      string
+	pctRostered float64
+}
+
+// buildStatusMap fetches raw pool pages and extracts status from cells[1].
+func (c *Client) buildStatusMap() (map[string]playerStatus, error) {
+	m := make(map[string]playerStatus)
+	page := 1
+	for {
+		raw, err := c.auth.GetPlayerPoolRaw(auth_client.StatusFilterAll, page)
+		if err != nil {
+			return nil, fmt.Errorf("raw pool page %d: %w", page, err)
+		}
+		if len(raw.Responses) == 0 {
+			break
+		}
+		data := raw.Responses[0].Data
+		for _, entry := range data.StatsTable {
+			if len(entry.Cells) < 2 {
+				continue
+			}
+			id := entry.Scorer.ScorerID
+			status := entry.Cells[1].Content
+			teamID := entry.Cells[1].TeamID
+			var pctRost float64
+			// %Rostered is the second-to-last cell
+			if idx := len(entry.Cells) - 2; idx >= 0 {
+				s := entry.Cells[idx].Content
+				s = strings.TrimSuffix(s, "%")
+				if f, err := strconv.ParseFloat(s, 64); err == nil {
+					pctRost = f
+				}
+			}
+			m[id] = playerStatus{status: status, teamID: teamID, pctRostered: pctRost}
+		}
+		if page >= data.PaginatedResultSet.TotalNumPages {
+			break
+		}
+		page++
+	}
+	return m, nil
+}
+
 // GetMinorsEligiblePool returns all minors-eligible players (rostered and available)
 // with fantasy ranking data. Used by the prospect ranking system.
 func (c *Client) GetMinorsEligiblePool() ([]ProspectPoolPlayer, error) {
@@ -252,6 +344,7 @@ func (c *Client) GetMinorsEligiblePool() ([]ProspectPoolPlayer, error) {
 			FantraxRank:     pp.Rank,
 			PercentRostered: pp.PercentRostered,
 			FantasyPtsPerG:  pp.FantasyPointsPerG,
+			FantasyTeam:     pp.FantasyStatus,
 		})
 	}
 	return players, nil

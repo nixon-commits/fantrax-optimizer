@@ -7,6 +7,7 @@ Fantasy baseball roster automation for Fantrax head-to-head points leagues. Opti
 - **Daily lineup optimization** — Backtracking optimizer finds the globally optimal hitter slot assignment. Pitcher optimizer accounts for probable starters and weekly GS budgets. Blends FanGraphs projections with recent rolling stats so hot/cold streaks factor into decisions.
 - **Real-life lineup awareness** — Checks MLB starting lineups so players sitting out (rest days, etc.) get benched in favor of active hitters.
 - **Prospect monitoring** — Scans MLB transactions, MiLB performance breakouts, and prospect rankings (MLB Pipeline / FanGraphs) to surface call-up alerts, hot streaks, and upgrade recommendations.
+- **Trade monitoring** — Fetches recent league trades, values each side using HKB player rankings, and sends a Pushover notification with the trade report.
 - **GS violation detection** — Tallies game starts across all league teams and sends Pushover notifications when a team exceeds the cap.
 - **Roster hygiene** — Flags healthy players stuck in IL slots, called-up players still in Minors slots, and injured players occupying active slots.
 
@@ -64,6 +65,9 @@ rosterbot optimize --dry-run --no-cache
 
 # Run prospect report
 rosterbot prospects --dry-run
+
+# Check recent trades with HKB valuations
+rosterbot transactions --dry-run
 
 # Check GS violations
 rosterbot gs-check --dry-run --force
