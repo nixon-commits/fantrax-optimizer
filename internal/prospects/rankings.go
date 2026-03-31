@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/nixon-commits/rosterbot/internal/cache"
-	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/nixon-commits/rosterbot/internal/projections"
 )
 
@@ -96,48 +95,6 @@ func isPitcherPosition(pos string) bool {
 		return true
 	}
 	return false
-}
-
-// ---------------------------------------------------------------------------
-// 2. FantraxRankingSource (fallback)
-// ---------------------------------------------------------------------------
-
-// FantraxRankingSource ranks minors-eligible players from the Fantrax player pool
-// by %Rostered descending. Used as fallback when FanGraphs is unavailable.
-type FantraxRankingSource struct {
-	Client *fantrax.Client
-}
-
-func (s *FantraxRankingSource) GetTopProspects(season int) ([]RankedProspect, error) {
-	pool, err := s.Client.GetMinorsEligiblePool()
-	if err != nil {
-		return nil, fmt.Errorf("fantrax prospect pool: %w", err)
-	}
-
-	// Sort by Fantrax overall rank ascending (lower = better).
-	// When %Rostered is available (in-season), use it as primary sort.
-	sort.SliceStable(pool, func(i, j int) bool {
-		if pool[i].PercentRostered != pool[j].PercentRostered {
-			return pool[i].PercentRostered > pool[j].PercentRostered
-		}
-		return pool[i].FantraxRank < pool[j].FantraxRank
-	})
-
-	// Return all players with their %Rostered value for comparison.
-	result := make([]RankedProspect, 0, len(pool))
-	for i := 0; i < len(pool); i++ {
-		p := pool[i]
-		pos := p.PosShortNames
-		result = append(result, RankedProspect{
-			Name:        p.Name,
-			MLBTeam:     projections.NormalizeTeam(p.MLBTeam),
-			Position:    pos,
-			Rank:        i + 1,
-			PctRostered: p.PercentRostered,
-			IsPitcher:   isPitcherPosition(pos),
-		})
-	}
-	return result, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -270,49 +227,6 @@ func FindUpgrades(rostered, available []RankedProspect, currentYear string) []Up
 	// Sort by rank gap descending
 	sort.Slice(upgrades, func(i, j int) bool {
 		return upgrades[i].RankGap > upgrades[j].RankGap
-	})
-
-	return upgrades
-}
-
-// FindPctRosteredUpgrades compares rostered prospects against available FAs
-// using %Rostered as the metric. An FA is an upgrade when its %Rostered
-// exceeds the rostered player's by at least minGap percentage points.
-func FindPctRosteredUpgrades(rostered, available []RankedProspect, minGap float64) []UpgradeCandidate {
-	if len(rostered) == 0 || len(available) == 0 {
-		return nil
-	}
-
-	var upgrades []UpgradeCandidate
-
-	for _, drop := range rostered {
-		var bestFA *RankedProspect
-		var bestGap float64
-
-		for i := range available {
-			add := &available[i]
-			gap := add.PctRostered - drop.PctRostered
-			if gap < minGap {
-				continue
-			}
-			if bestFA == nil || add.PctRostered > bestFA.PctRostered {
-				cp := *add
-				bestFA = &cp
-				bestGap = gap
-			}
-		}
-
-		if bestFA != nil {
-			upgrades = append(upgrades, UpgradeCandidate{
-				Drop:   drop,
-				Add:    *bestFA,
-				PctGap: bestGap,
-			})
-		}
-	}
-
-	sort.Slice(upgrades, func(i, j int) bool {
-		return upgrades[i].PctGap > upgrades[j].PctGap
 	})
 
 	return upgrades
