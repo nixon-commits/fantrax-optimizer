@@ -126,6 +126,7 @@ Three GitHub Actions workflows run on daily schedules:
 |---|---|---|
 | `lineup.yml` | Every hour 8am-7pm PT | `optimize --matchup` |
 | `gs-check.yml` | 8am ET daily | `gs-check` |
+| `transactions.yml` | 10am ET daily | `transactions` |
 | `prospects.yml` | 7am ET daily | `prospects` |
 
 All workflows support `workflow_dispatch` for manual triggering. Required repository secrets: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`.

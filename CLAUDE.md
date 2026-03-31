@@ -114,3 +114,5 @@ When adding new commands, flags, env vars, or changing architecture, update `REA
 `.github/workflows/lineup.yml` runs daily at 10am UTC (6am ET) and on `workflow_dispatch`. Requires six repository secrets: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Optional: `GS_CAP` (game-start cap). Chrome is installed via `browser-actions/setup-chrome@v2` before the Go run step.
 
 `.github/workflows/gs-check.yml` runs daily at 12pm UTC (8am ET) and on `workflow_dispatch` (with `force` and `dry_run` inputs). Checks league-wide GS violations at period end. Additional secret: `GS_CAP`.
+
+`.github/workflows/transactions.yml` runs daily at 2pm UTC (10am ET) and on `workflow_dispatch` (with `dry_run` input). Checks recent league trades and sends Pushover notifications with HKB valuations.
