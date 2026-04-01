@@ -36,10 +36,7 @@ type TradePlayer struct {
 	Age            float64 // decimal age (e.g. 25.8)
 	Rank           int     // overall HKB dynasty rank
 	ValueChange30D int     // value delta over last 30 days
-	ValueChange7D  int     // value delta over last 7 days
-	RankChange30D  int     // rank delta over last 30 days (negative = improved)
 	Level          string  // MLB, AAA, AA, etc.
-	Team           string  // MLB team abbreviation
 	Prospect       bool
 	FYPD           bool
 	// Key stats — exactly one set is populated based on player type.
@@ -58,7 +55,7 @@ type Trade struct {
 
 // CheckTrades fetches recent and pending trades, values them via HKB, and sends a notification.
 func CheckTrades(ft TradeClient, cacheDir string, pushoverUserKey, pushoverAPIToken string, dryRun bool) error {
-	since := time.Now().Add(-48 * time.Hour) // TODO: revert to -24h after testing
+	since := time.Now().Add(-24 * time.Hour)
 	txs, err := ft.GetRecentTrades(since)
 	if err != nil {
 		return fmt.Errorf("get recent trades: %w", err)
@@ -80,18 +77,16 @@ func CheckTrades(ft TradeClient, cacheDir string, pushoverUserKey, pushoverAPITo
 	}
 	lookup := buildHKBLookup(players)
 
-	// Pending trades section.
+	var pendingGrouped []Trade
 	if len(pendingTrades) > 0 {
-		grouped := groupPendingTrades(pendingTrades, lookup)
-		pendingReport := formatPendingReport(grouped, true)
-		fmt.Println(pendingReport)
+		pendingGrouped = groupPendingTrades(pendingTrades, lookup)
+		fmt.Println(formatTrades("Pending Trades", pendingGrouped, true))
 	}
 
-	// Executed trades section.
+	var executedGrouped []Trade
 	if len(txs) > 0 {
-		trades := groupTrades(txs, lookup)
-		report := formatReport(trades, true)
-		fmt.Println(report)
+		executedGrouped = groupTrades(txs, lookup)
+		fmt.Println(formatTrades("Recent Trades", executedGrouped, true))
 	}
 
 	if dryRun {
@@ -103,15 +98,12 @@ func CheckTrades(ft TradeClient, cacheDir string, pushoverUserKey, pushoverAPITo
 		return nil
 	}
 
-	// Notification includes both pending and executed.
 	var notifyParts []string
-	if len(pendingTrades) > 0 {
-		grouped := groupPendingTrades(pendingTrades, lookup)
-		notifyParts = append(notifyParts, formatPendingReport(grouped, false))
+	if len(pendingGrouped) > 0 {
+		notifyParts = append(notifyParts, formatTrades("Pending Trades", pendingGrouped, false))
 	}
-	if len(txs) > 0 {
-		trades := groupTrades(txs, lookup)
-		notifyParts = append(notifyParts, formatReport(trades, false))
+	if len(executedGrouped) > 0 {
+		notifyParts = append(notifyParts, formatTrades("Recent Trades", executedGrouped, false))
 	}
 	if len(notifyParts) > 0 {
 		plain := strings.Join(notifyParts, "\n")
@@ -191,13 +183,7 @@ const (
 	colorReset = "\033[0m"
 )
 
-// formatReport produces a human-readable trade report. When color is true,
-// ANSI escape codes highlight the winning (green) and losing (red) side.
-func formatReport(trades []Trade, color bool) string {
-	return formatTrades("Recent Trades", trades, color)
-}
-
-// formatTrades is the shared formatter for both pending and executed trades.
+// formatTrades produces a human-readable trade report with the given header.
 func formatTrades(header string, trades []Trade, color bool) string {
 	var b strings.Builder
 	b.WriteString(header + "\n")
@@ -226,7 +212,6 @@ func formatTrades(header string, trades []Trade, color bool) string {
 				formatPlayer(&b, p, color)
 				b.WriteString("\n")
 			}
-			// Total line with diff.
 			diffSign := "+"
 			absDiff := diff
 			if diff < 0 {
@@ -255,19 +240,15 @@ func formatPlayer(b *strings.Builder, p TradePlayer, color bool) {
 		return
 	}
 
-	// Name (Pos) #Rank
 	fmt.Fprintf(b, "%s (%s) #%d", p.Name, p.Position, p.Rank)
 
-	// | Value with 30d trend arrow
 	b.WriteString(" | ")
 	b.WriteString(formatValue(p.Value))
 	b.WriteString(" ")
 	formatTrend(b, p.ValueChange30D, color)
 
-	// | Age
 	fmt.Fprintf(b, " | Age %d", int(math.Floor(p.Age)))
 
-	// | Key stat
 	if p.HasStats {
 		if p.IsPitcher {
 			fmt.Fprintf(b, " | %.2f ERA / %.2f WHIP", p.ERA, p.WHIP)
@@ -276,7 +257,6 @@ func formatPlayer(b *strings.Builder, p TradePlayer, color bool) {
 		}
 	}
 
-	// | Flags
 	var flags []string
 	if p.Prospect {
 		flags = append(flags, "Prospect")
@@ -380,11 +360,6 @@ func groupPendingTrades(pts []fantrax.PendingTrade, lookup map[string]hkb.Player
 	return trades
 }
 
-// formatPendingReport produces a human-readable pending trade report.
-func formatPendingReport(trades []Trade, color bool) string {
-	return formatTrades("Pending Trades", trades, color)
-}
-
 // newTradePlayer creates a TradePlayer populated with HKB metadata if found.
 func newTradePlayer(name, position string, lookup map[string]hkb.Player) TradePlayer {
 	tp := TradePlayer{
@@ -400,10 +375,7 @@ func newTradePlayer(name, position string, lookup map[string]hkb.Player) TradePl
 	tp.Age = p.Age
 	tp.Rank = p.Rank
 	tp.ValueChange30D = p.ValueChange30Days
-	tp.ValueChange7D = p.ValueChange7Days
-	tp.RankChange30D = p.RankChange30Days
 	tp.Level = p.Level
-	tp.Team = p.Team
 	tp.Prospect = p.Prospect
 	tp.FYPD = p.FYPD
 	if p.PitcherStats != nil {

@@ -263,7 +263,7 @@ func TestFormatPlayer(t *testing.T) {
 	t.Run("ranked hitter with stats", func(t *testing.T) {
 		p := TradePlayer{
 			Name: "Bobby Witt Jr.", Position: "SS", Value: 10000, Ranked: true,
-			Age: 25.8, Rank: 1, ValueChange30D: 200, Level: "MLB", Team: "KC",
+			Age: 25.8, Rank: 1, ValueChange30D: 200, Level: "MLB",
 			HasStats: true, OPS: 0.912,
 		}
 		var b strings.Builder
@@ -337,7 +337,7 @@ func TestFormatReport(t *testing.T) {
 		},
 	}
 
-	report := formatReport(trades, true)
+	report := formatTrades("Recent Trades", trades, true)
 	if report == "" {
 		t.Fatal("expected non-empty report")
 	}
@@ -396,7 +396,7 @@ func TestFormatPendingReport(t *testing.T) {
 			},
 		},
 	}
-	report := formatPendingReport(trades, false)
+	report := formatTrades("Pending Trades", trades, false)
 	assertContains(t, report, "Pending Trades")
 	assertContains(t, report, "Team A <-> Team B")
 	assertContains(t, report, "P1 (SP) #80")
