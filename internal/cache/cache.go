@@ -35,8 +35,10 @@ func (c *FileCache[T]) Get(key string, fetch func() (T, error)) (T, error) {
 	// Try loading from cache (skip if TTL is 0).
 	if c.ttl > 0 {
 		if data, ok := c.load(path); ok {
+			fmt.Fprintf(os.Stderr, "cache hit: %s\n", key)
 			return data, nil
 		}
+		fmt.Fprintf(os.Stderr, "cache miss: %s (path=%s)\n", key, path)
 	}
 
 	// Cache miss or expired — fetch fresh data.
