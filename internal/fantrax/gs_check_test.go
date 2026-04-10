@@ -124,7 +124,7 @@ func TestIsPitchingGroup(t *testing.T) {
 	}
 }
 
-func TestSumGSFromTables(t *testing.T) {
+func TestPlayerGSFromTables(t *testing.T) {
 	tables := []models.RosterTable{
 		{
 			SCGroup: "10", // hitting group, should be skipped
@@ -143,25 +143,42 @@ func TestSumGSFromTables(t *testing.T) {
 				},
 			},
 			Rows: []models.PlayerRow{
-				{Scorer: models.Player{Name: "P1"}, Cells: []models.Cell{{Content: "1"}, {Content: "3"}, {Content: "20"}}},
-				{Scorer: models.Player{Name: "P2"}, Cells: []models.Cell{{Content: "0"}, {Content: "5"}, {Content: "30"}}},
-				{Scorer: models.Player{Name: "P3"}, Cells: []models.Cell{{Content: "0"}, {Content: ""}, {Content: "10"}}},   // empty GS
-				{Scorer: models.Player{Name: "P4"}, Cells: []models.Cell{{Content: "0"}, {Content: "2.0"}, {Content: "5"}}}, // float GS
-				{Cells: []models.Cell{{Content: "0"}, {Content: "10"}, {Content: "65"}}, StatusID: "y"},                     // totals row, should be skipped
+				{Scorer: models.Player{Name: "P1", ScorerID: "p1"}, Cells: []models.Cell{{Content: "1"}, {Content: "3"}, {Content: "20"}}},
+				{Scorer: models.Player{Name: "P2", ScorerID: "p2"}, Cells: []models.Cell{{Content: "0"}, {Content: "5"}, {Content: "30"}}},
+				{Scorer: models.Player{Name: "P3", ScorerID: "p3"}, Cells: []models.Cell{{Content: "0"}, {Content: ""}, {Content: "10"}}},   // empty GS
+				{Scorer: models.Player{Name: "P4", ScorerID: "p4"}, Cells: []models.Cell{{Content: "0"}, {Content: "2.0"}, {Content: "5"}}}, // float GS
+				{Cells: []models.Cell{{Content: "0"}, {Content: "10"}, {Content: "65"}}, StatusID: "y"},                                     // totals row, should be skipped
 			},
 		},
 	}
 
-	total, err := sumGSFromTables(tables)
+	result, err := playerGSFromTables(tables)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if total != 10 { // 3 + 5 + 0 + 2
-		t.Errorf("expected 10, got %d", total)
+	// 3 + 5 + 0 + 2 = 10 total across players
+	total := 0
+	for _, gs := range result {
+		total += gs
+	}
+	if total != 10 {
+		t.Errorf("expected total 10, got %d", total)
+	}
+	if result["p1"] != 3 {
+		t.Errorf("expected p1=3, got %d", result["p1"])
+	}
+	if result["p2"] != 5 {
+		t.Errorf("expected p2=5, got %d", result["p2"])
+	}
+	if result["p4"] != 2 {
+		t.Errorf("expected p4=2, got %d", result["p4"])
+	}
+	if _, ok := result["p3"]; ok {
+		t.Errorf("expected p3 absent (empty GS), got %d", result["p3"])
 	}
 }
 
-func TestSumGSFromTables_NoGSColumn(t *testing.T) {
+func TestPlayerGSFromTables_NoGSColumn(t *testing.T) {
 	tables := []models.RosterTable{
 		{
 			SCGroup: "20",
@@ -169,34 +186,34 @@ func TestSumGSFromTables_NoGSColumn(t *testing.T) {
 				Cells: []models.Column{{ShortName: "W"}, {ShortName: "K"}},
 			},
 			Rows: []models.PlayerRow{
-				{Cells: []models.Cell{{Content: "1"}, {Content: "20"}}},
+				{Scorer: models.Player{Name: "P1", ScorerID: "p1"}, Cells: []models.Cell{{Content: "1"}, {Content: "20"}}},
 			},
 		},
 	}
 
-	total, err := sumGSFromTables(tables)
+	result, err := playerGSFromTables(tables)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if total != 0 {
-		t.Errorf("expected 0, got %d", total)
+	if len(result) != 0 {
+		t.Errorf("expected empty map, got %v", result)
 	}
 }
 
-func TestSumGSFromTables_NoPitchingTable(t *testing.T) {
+func TestPlayerGSFromTables_NoPitchingTable(t *testing.T) {
 	tables := []models.RosterTable{
 		{
 			SCGroup: "10",
 			Header:  models.TableHeader{Cells: []models.Column{{ShortName: "GS"}}},
-			Rows:    []models.PlayerRow{{Cells: []models.Cell{{Content: "5"}}}},
+			Rows:    []models.PlayerRow{{Scorer: models.Player{Name: "P1", ScorerID: "p1"}, Cells: []models.Cell{{Content: "5"}}}},
 		},
 	}
 
-	total, err := sumGSFromTables(tables)
+	result, err := playerGSFromTables(tables)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if total != 0 {
-		t.Errorf("expected 0, got %d", total)
+	if len(result) != 0 {
+		t.Errorf("expected empty map, got %v", result)
 	}
 }

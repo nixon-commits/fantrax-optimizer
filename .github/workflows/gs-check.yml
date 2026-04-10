@@ -34,8 +34,7 @@ jobs:
           FLAGS=""
           FORCE="${{ github.event.inputs.force }}"
           DRY_RUN="${{ github.event.inputs.dry_run }}"
-          # On schedule (no inputs), default force=true, dry_run=false
-          if [ "${FORCE:-true}" = "true" ]; then
+          if [ "${FORCE:-false}" = "true" ]; then
             FLAGS="$FLAGS --force"
           fi
           if [ "${DRY_RUN:-false}" = "true" ]; then

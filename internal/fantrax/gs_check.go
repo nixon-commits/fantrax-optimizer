@@ -137,9 +137,10 @@ type gsRosterRequest struct {
 }
 
 // GetTeamGS returns the total Games Started for active-slot pitchers on a team
-// within the given matchup scoring period. The Fantrax API returns cumulative
-// stats per daily period, so we query the most recent completed day to get the
-// running total.
+// within the given matchup scoring period. The Fantrax roster API returns
+// cumulative season-to-date stats regardless of which period is requested, so
+// we query two snapshots (day before the period started and last completed day)
+// and compute the per-player delta to isolate period-only GS.
 // seasonStart is the first day of the season (period 1), used to convert dates
 // to daily period numbers.
 func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today time.Time) (int, error) {
@@ -153,12 +154,38 @@ func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today t
 		yesterday = sp.EndDate
 	}
 
-	dailyPeriod := PeriodForDate(seasonStart, yesterday)
-	return c.getTeamGSForPeriod(teamID, dailyPeriod)
+	// Get current YTD GS per player as of yesterday.
+	currentPeriod := PeriodForDate(seasonStart, yesterday)
+	currentGS, err := c.getPlayerGSForPeriod(teamID, currentPeriod)
+	if err != nil {
+		return 0, fmt.Errorf("get current GS: %w", err)
+	}
+
+	// Get baseline YTD GS per player as of the day before the period started.
+	// For the first period of the season, baseline is zero (no prior data).
+	dayBeforePeriod := sp.StartDate.AddDate(0, 0, -1)
+	baselineGS := map[string]int{}
+	if !dayBeforePeriod.Before(seasonStart) {
+		baselinePeriod := PeriodForDate(seasonStart, dayBeforePeriod)
+		baselineGS, err = c.getPlayerGSForPeriod(teamID, baselinePeriod)
+		if err != nil {
+			return 0, fmt.Errorf("get baseline GS: %w", err)
+		}
+	}
+
+	// Sum the per-player deltas.
+	totalGS := 0
+	for playerID, gs := range currentGS {
+		delta := gs - baselineGS[playerID]
+		if delta > 0 {
+			totalGS += delta
+		}
+	}
+	return totalGS, nil
 }
 
-// getTeamGSForPeriod returns the GS for a single daily period.
-func (c *Client) getTeamGSForPeriod(teamID string, period int) (int, error) {
+// getPlayerGSForPeriod returns per-player YTD GS for active-slot pitchers on a single daily period.
+func (c *Client) getPlayerGSForPeriod(teamID string, period int) (map[string]int, error) {
 	data := gsRosterRequest{
 		LeagueID:            c.leagueID,
 		Reload:              "1",
@@ -187,45 +214,45 @@ func (c *Client) getTeamGSForPeriod(teamID string, period int) (int, error) {
 
 	jsonStr, err := json.Marshal(fullRequest)
 	if err != nil {
-		return 0, fmt.Errorf("marshal roster request: %w", err)
+		return nil, fmt.Errorf("marshal roster request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", standingsURL+"?leagueId="+c.leagueID, bytes.NewBuffer(jsonStr))
 	if err != nil {
-		return 0, fmt.Errorf("create roster request: %w", err)
+		return nil, fmt.Errorf("create roster request: %w", err)
 	}
 
 	resp, err := c.auth.Do(req)
 	if err != nil {
-		return 0, fmt.Errorf("send roster request: %w", err)
+		return nil, fmt.Errorf("send roster request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("roster API returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("roster API returned status %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, fmt.Errorf("read roster response: %w", err)
+		return nil, fmt.Errorf("read roster response: %w", err)
 	}
 
 	var rosterResp models.TeamRosterResponse
 	if err := json.Unmarshal(body, &rosterResp); err != nil {
-		return 0, fmt.Errorf("unmarshal roster response: %w", err)
+		return nil, fmt.Errorf("unmarshal roster response: %w", err)
 	}
 
 	if len(rosterResp.Responses) == 0 {
-		return 0, fmt.Errorf("no response data in roster")
+		return nil, fmt.Errorf("no response data in roster")
 	}
 
 	tables := rosterResp.Responses[0].Data.Tables
-	return sumGSFromTables(tables)
+	return playerGSFromTables(tables)
 }
 
-// sumGSFromTables finds the pitching table (scGroup=20) and sums the GS column
-// for active-slot pitchers only (StatusID "1").
-func sumGSFromTables(tables []models.RosterTable) (int, error) {
+// playerGSFromTables finds the pitching table (scGroup=20) and returns per-player
+// YTD GS for active-slot pitchers (keyed by ScorerID).
+func playerGSFromTables(tables []models.RosterTable) (map[string]int, error) {
 	for _, table := range tables {
 		if !isPitchingGroup(table.SCGroup) {
 			continue
@@ -239,13 +266,13 @@ func sumGSFromTables(tables []models.RosterTable) (int, error) {
 			}
 		}
 		if gsIdx == -1 {
-			return 0, nil
+			return map[string]int{}, nil
 		}
 
-		totalGS := 0
+		result := map[string]int{}
 		for _, row := range table.Rows {
 			// Skip totals/summary rows (empty name, non-roster status, empty slots).
-			if row.Scorer.Name == "" || row.IsEmptyRosterSlot {
+			if row.Scorer.Name == "" || row.IsEmptyRosterSlot || row.Scorer.ScorerID == "" {
 				continue
 			}
 			if gsIdx >= len(row.Cells) {
@@ -259,12 +286,12 @@ func sumGSFromTables(tables []models.RosterTable) (int, error) {
 			if err != nil {
 				continue
 			}
-			totalGS += int(math.Round(val))
+			result[row.Scorer.ScorerID] = int(math.Round(val))
 		}
-		return totalGS, nil
+		return result, nil
 	}
 
-	return 0, nil
+	return map[string]int{}, nil
 }
 
 // isPitchingGroup checks if scGroup represents the pitching group (20).

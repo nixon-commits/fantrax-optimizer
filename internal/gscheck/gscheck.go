@@ -27,27 +27,37 @@ type Violation struct {
 }
 
 // BuildReport creates the notification content for GS violations.
-// Returns a title and a short summary suitable for Pushover.
-func BuildReport(violations []Violation, periodLabel string, gsMax, gsMin int) (title, summary string) {
-	title = fmt.Sprintf("GS Alert: %d violation(s) — %s", len(violations), periodLabel)
+// Returns a title and an HTML-formatted body suitable for Pushover.
+func BuildReport(violations []Violation, periodLabel string, gsMax, gsMin int) (title, body string) {
+	title = fmt.Sprintf("GS Alert — %s", periodLabel)
 
-	var teamParts []string
-	for _, v := range violations {
-		switch v.Kind {
-		case ViolationMax:
-			teamParts = append(teamParts, fmt.Sprintf("%s (%d GS, +%d over max)", v.TeamName, v.GSUsed, v.GSUsed-gsMax))
-		case ViolationMin:
-			teamParts = append(teamParts, fmt.Sprintf("%s (%d GS, %d under min)", v.TeamName, v.GSUsed, gsMin-v.GSUsed))
-		}
-	}
-	limParts := []string{}
+	var limParts []string
 	if gsMax > 0 {
 		limParts = append(limParts, fmt.Sprintf("max %d", gsMax))
 	}
 	if gsMin > 0 {
 		limParts = append(limParts, fmt.Sprintf("min %d", gsMin))
 	}
-	summary = fmt.Sprintf("%d GS violation(s) for %s (%s): %s", len(violations), periodLabel, strings.Join(limParts, ", "), strings.Join(teamParts, ", "))
+
+	var overLines, underLines []string
+	for _, v := range violations {
+		switch v.Kind {
+		case ViolationMax:
+			overLines = append(overLines, fmt.Sprintf("  %s — <b>%d GS</b> (+%d)", v.TeamName, v.GSUsed, v.GSUsed-gsMax))
+		case ViolationMin:
+			underLines = append(underLines, fmt.Sprintf("  %s — <b>%d GS</b> (-%d)", v.TeamName, v.GSUsed, gsMin-v.GSUsed))
+		}
+	}
+
+	var sections []string
+	if len(overLines) > 0 {
+		sections = append(sections, fmt.Sprintf("<b>Over Max (%d):</b>\n%s", gsMax, strings.Join(overLines, "\n")))
+	}
+	if len(underLines) > 0 {
+		sections = append(sections, fmt.Sprintf("<b>Under Min (%d):</b>\n%s", gsMin, strings.Join(underLines, "\n")))
+	}
+
+	body = fmt.Sprintf("%d violation(s) · %s\n\n%s", len(violations), strings.Join(limParts, ", "), strings.Join(sections, "\n\n"))
 
 	return
 }
