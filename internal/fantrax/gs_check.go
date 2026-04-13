@@ -136,72 +136,101 @@ type gsRosterRequest struct {
 	StatsType           string `json:"statsType"`
 }
 
-// playerGSSnapshot holds a pitcher's YTD GS and whether they were in an active slot.
+// playerGSSnapshot holds a pitcher's YTD GS, YTD fantasy points, name, and active-slot status.
 type playerGSSnapshot struct {
 	gs     int
+	fpts   float64
+	name   string
 	active bool
 }
 
+// PitcherStart records a single active-slot pitcher game start with its fantasy points.
+type PitcherStart struct {
+	PitcherName string
+	FPts        float64
+}
+
 // GetTeamGS returns the total Games Started for active-slot pitchers on a team
-// within the given matchup scoring period. It checks each day individually so
-// that a pitcher's GS only counts on days they were in an active lineup slot.
+// within the given matchup scoring period, along with the pitcher starts that
+// pushed the team over gsMax (the overage starts). It checks each day individually
+// so that a pitcher's GS only counts on days they were in an active lineup slot.
 // A pitcher moved to IL or bench mid-period won't have later starts counted,
 // and a pitcher called up mid-period will have their starts counted from the
 // day they entered an active slot.
-func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today time.Time) (int, error) {
+func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today time.Time, gsMax int) (int, []PitcherStart, error) {
 	// Use yesterday as the last completed day. If the period hasn't started yet, return 0.
 	yesterday := today.Truncate(24*time.Hour).AddDate(0, 0, -1)
 	if yesterday.Before(sp.StartDate) {
-		return 0, nil
+		return 0, nil, nil
 	}
 	// Cap at the period end date.
 	if yesterday.After(sp.EndDate) {
 		yesterday = sp.EndDate
 	}
 
-	// Get baseline YTD GS per player as of the day before the period started.
+	// Get baseline YTD GS and FPts per player as of the day before the period started.
 	// For the first period of the season, baseline is zero (no prior data).
 	dayBeforePeriod := sp.StartDate.AddDate(0, 0, -1)
 	prevGS := map[string]int{}
+	prevFPts := map[string]float64{}
 	if !dayBeforePeriod.Before(seasonStart) {
 		baselinePeriod := PeriodForDate(seasonStart, dayBeforePeriod)
 		info, err := c.getPlayerGSSnapshotForPeriod(teamID, baselinePeriod)
 		if err != nil {
-			return 0, fmt.Errorf("get baseline GS: %w", err)
+			return 0, nil, fmt.Errorf("get baseline GS: %w", err)
 		}
 		for pid, snap := range info {
 			prevGS[pid] = snap.gs
+			prevFPts[pid] = snap.fpts
 		}
 	}
 
 	// Walk each day of the period. For each day, fetch the roster snapshot to
 	// determine which pitchers are active and compute per-day GS deltas.
+	// Only collect starts that occur after the team has exceeded gsMax.
 	totalGS := 0
+	var overageStarts []PitcherStart
 	for d := sp.StartDate; !d.After(yesterday); d = d.AddDate(0, 0, 1) {
 		period := PeriodForDate(seasonStart, d)
 		info, err := c.getPlayerGSSnapshotForPeriod(teamID, period)
 		if err != nil {
-			return 0, fmt.Errorf("get GS for %s: %w", d.Format("2006-01-02"), err)
+			return 0, nil, fmt.Errorf("get GS for %s: %w", d.Format("2006-01-02"), err)
 		}
 
 		dayGS := map[string]int{}
+		dayFPts := map[string]float64{}
+		var dayStarts []PitcherStart
 		for pid, snap := range info {
 			dayGS[pid] = snap.gs
+			dayFPts[pid] = snap.fpts
 			// Only count this day's GS delta if the pitcher was in an active slot.
 			if snap.active {
 				delta := snap.gs - prevGS[pid]
 				if delta > 0 {
 					totalGS += delta
+					fptsDelta := snap.fpts - prevFPts[pid]
+					dayStarts = append(dayStarts, PitcherStart{
+						PitcherName: snap.name,
+						FPts:        fptsDelta,
+					})
 				}
 			}
 		}
+
+		// Collect starts from any day where the team is over gsMax. All starts
+		// on that day are deduction candidates — the caller picks the top N by FPts.
+		if gsMax > 0 && totalGS > gsMax {
+			overageStarts = append(overageStarts, dayStarts...)
+		}
+
 		prevGS = dayGS
+		prevFPts = dayFPts
 
 		// Brief pause between API calls to avoid rate limiting.
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	return totalGS, nil
+	return totalGS, overageStarts, nil
 }
 
 // getPlayerGSSnapshotForPeriod returns per-player YTD GS and active-slot status for a single daily period.
@@ -271,8 +300,9 @@ func (c *Client) getPlayerGSSnapshotForPeriod(teamID string, period int) (map[st
 }
 
 // playerGSFromTables finds the pitching table (scGroup=20) and returns per-player
-// YTD GS and active-slot status (keyed by ScorerID). StatusID "1" = active slot;
-// "2" = reserve/bench, "3" = IL, "9" = minors.
+// YTD GS, YTD fantasy points, name, and active-slot status (keyed by ScorerID).
+// StatusID "1" = active slot; "2" = reserve/bench, "3" = IL, "9" = minors.
+// Fantasy points come from the "fpts" column (col.Key); if absent, fpts defaults to 0.
 func playerGSFromTables(tables []models.RosterTable) (map[string]playerGSSnapshot, error) {
 	for _, table := range tables {
 		if !isPitchingGroup(table.SCGroup) {
@@ -280,10 +310,13 @@ func playerGSFromTables(tables []models.RosterTable) (map[string]playerGSSnapsho
 		}
 
 		gsIdx := -1
+		fptsIdx := -1
 		for i, col := range table.Header.Cells {
 			if col.ShortName == "GS" {
 				gsIdx = i
-				break
+			}
+			if col.Key == "fpts" {
+				fptsIdx = i
 			}
 		}
 		if gsIdx == -1 {
@@ -307,8 +340,18 @@ func playerGSFromTables(tables []models.RosterTable) (map[string]playerGSSnapsho
 			if err != nil {
 				continue
 			}
+
+			var fpts float64
+			if fptsIdx >= 0 && fptsIdx < len(row.Cells) {
+				if v, err := strconv.ParseFloat(row.Cells[fptsIdx].Content, 64); err == nil {
+					fpts = v
+				}
+			}
+
 			result[row.Scorer.ScorerID] = playerGSSnapshot{
 				gs:     int(math.Round(val)),
+				fpts:   fpts,
+				name:   row.Scorer.Name,
 				active: row.StatusID == "1",
 			}
 		}

@@ -3,11 +3,19 @@ package gscheck
 import (
 	"strings"
 	"testing"
+
+	"github.com/nixon-commits/rosterbot/internal/fantrax"
 )
 
 func TestBuildReport_MaxViolations(t *testing.T) {
 	violations := []Violation{
-		{TeamName: "Team Alpha", GSUsed: 14, Kind: ViolationMax},
+		{
+			TeamName: "Team Alpha", GSUsed: 14, Kind: ViolationMax,
+			Deductions: []fantrax.PitcherStart{
+				{PitcherName: "Gerrit Cole", FPts: 28.5},
+				{PitcherName: "Max Scherzer", FPts: 22.0},
+			},
+		},
 		{TeamName: "Team Beta", GSUsed: 13, Kind: ViolationMax},
 	}
 	periodLabel := "Scoring Period 5 (2026-03-30 – 2026-04-05)"
@@ -20,6 +28,16 @@ func TestBuildReport_MaxViolations(t *testing.T) {
 	if !strings.Contains(body, "Team Alpha") || !strings.Contains(body, "14 GS") || !strings.Contains(body, "+2") {
 		t.Errorf("body missing Team Alpha details: %s", body)
 	}
+	if !strings.Contains(body, "Gerrit Cole (28.5 pts)") {
+		t.Errorf("body missing deduction for Gerrit Cole: %s", body)
+	}
+	if !strings.Contains(body, "Max Scherzer (22.0 pts)") {
+		t.Errorf("body missing deduction for Max Scherzer: %s", body)
+	}
+	if !strings.Contains(body, "Deduct:") {
+		t.Errorf("body missing Deduct label: %s", body)
+	}
+	// Team Beta has no deductions — should not show "Deduct" for them.
 	if !strings.Contains(body, "Team Beta") || !strings.Contains(body, "13 GS") || !strings.Contains(body, "+1") {
 		t.Errorf("body missing Team Beta details: %s", body)
 	}

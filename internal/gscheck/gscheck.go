@@ -21,9 +21,10 @@ const (
 
 // Violation represents a team that violated a GS limit.
 type Violation struct {
-	TeamName string
-	GSUsed   int
-	Kind     ViolationKind
+	TeamName   string
+	GSUsed     int
+	Kind       ViolationKind
+	Deductions []fantrax.PitcherStart // top N highest-scoring starts to deduct (ViolationMax only)
 }
 
 // BuildReport creates the notification content for GS violations.
@@ -43,7 +44,15 @@ func BuildReport(violations []Violation, periodLabel string, gsMax, gsMin int) (
 	for _, v := range violations {
 		switch v.Kind {
 		case ViolationMax:
-			overLines = append(overLines, fmt.Sprintf("  %s — <b>%d GS</b> (+%d)", v.TeamName, v.GSUsed, v.GSUsed-gsMax))
+			line := fmt.Sprintf("  %s — <b>%d GS</b> (+%d)", v.TeamName, v.GSUsed, v.GSUsed-gsMax)
+			if len(v.Deductions) > 0 {
+				var parts []string
+				for _, d := range v.Deductions {
+					parts = append(parts, fmt.Sprintf("%s (%.1f pts)", d.PitcherName, d.FPts))
+				}
+				line += fmt.Sprintf("\n    Deduct: %s", strings.Join(parts, ", "))
+			}
+			overLines = append(overLines, line)
 		case ViolationMin:
 			underLines = append(underLines, fmt.Sprintf("  %s — <b>%d GS</b> (-%d)", v.TeamName, v.GSUsed, gsMin-v.GSUsed))
 		}
@@ -63,9 +72,10 @@ func BuildReport(violations []Violation, periodLabel string, gsMax, gsMin int) (
 }
 
 type teamGS struct {
-	id   string
-	name string
-	gs   int
+	id     string
+	name   string
+	gs     int
+	starts []fantrax.PitcherStart
 }
 
 // RunGSCheck checks all teams for GS violations in the most recent scoring period.
@@ -123,13 +133,13 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 
 	var results []teamGS
 	for teamID, teamName := range teamMap {
-		gs, err := ft.GetTeamGS(teamID, *period, seasonStart, today)
+		gs, starts, err := ft.GetTeamGS(teamID, *period, seasonStart, today, cfg.GSMax)
 		if err != nil {
 			fmt.Printf("WARNING: failed to get GS for %s: %v\n", teamName, err)
 			continue
 		}
 		fmt.Printf("  %s: %d GS\n", teamName, gs)
-		results = append(results, teamGS{id: teamID, name: teamName, gs: gs})
+		results = append(results, teamGS{id: teamID, name: teamName, gs: gs, starts: starts})
 		time.Sleep(500 * time.Millisecond)
 	}
 
@@ -137,7 +147,19 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 	var violations []Violation
 	for _, r := range results {
 		if r.gs > cfg.GSMax {
-			violations = append(violations, Violation{TeamName: r.name, GSUsed: r.gs, Kind: ViolationMax})
+			v := Violation{TeamName: r.name, GSUsed: r.gs, Kind: ViolationMax}
+			// Deduct the N highest-scoring starts where N = overage.
+			overage := r.gs - cfg.GSMax
+			if len(r.starts) > 0 {
+				sorted := make([]fantrax.PitcherStart, len(r.starts))
+				copy(sorted, r.starts)
+				sort.Slice(sorted, func(i, j int) bool { return sorted[i].FPts > sorted[j].FPts })
+				if overage > len(sorted) {
+					overage = len(sorted)
+				}
+				v.Deductions = sorted[:overage]
+			}
+			violations = append(violations, v)
 		}
 		if cfg.GSMin > 0 && r.gs < cfg.GSMin {
 			violations = append(violations, Violation{TeamName: r.name, GSUsed: r.gs, Kind: ViolationMin})
