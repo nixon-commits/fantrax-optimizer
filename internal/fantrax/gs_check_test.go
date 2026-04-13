@@ -143,11 +143,11 @@ func TestPlayerGSFromTables(t *testing.T) {
 				},
 			},
 			Rows: []models.PlayerRow{
-				{Scorer: models.Player{Name: "P1", ScorerID: "p1"}, Cells: []models.Cell{{Content: "1"}, {Content: "3"}, {Content: "20"}}},
-				{Scorer: models.Player{Name: "P2", ScorerID: "p2"}, Cells: []models.Cell{{Content: "0"}, {Content: "5"}, {Content: "30"}}},
-				{Scorer: models.Player{Name: "P3", ScorerID: "p3"}, Cells: []models.Cell{{Content: "0"}, {Content: ""}, {Content: "10"}}},   // empty GS
-				{Scorer: models.Player{Name: "P4", ScorerID: "p4"}, Cells: []models.Cell{{Content: "0"}, {Content: "2.0"}, {Content: "5"}}}, // float GS
-				{Cells: []models.Cell{{Content: "0"}, {Content: "10"}, {Content: "65"}}, StatusID: "y"},                                     // totals row, should be skipped
+				{Scorer: models.Player{Name: "P1", ScorerID: "p1"}, StatusID: "1", Cells: []models.Cell{{Content: "1"}, {Content: "3"}, {Content: "20"}}},
+				{Scorer: models.Player{Name: "P2", ScorerID: "p2"}, StatusID: "1", Cells: []models.Cell{{Content: "0"}, {Content: "5"}, {Content: "30"}}},
+				{Scorer: models.Player{Name: "P3", ScorerID: "p3"}, StatusID: "1", Cells: []models.Cell{{Content: "0"}, {Content: ""}, {Content: "10"}}},   // empty GS
+				{Scorer: models.Player{Name: "P4", ScorerID: "p4"}, StatusID: "2", Cells: []models.Cell{{Content: "0"}, {Content: "2.0"}, {Content: "5"}}}, // bench pitcher
+				{Cells: []models.Cell{{Content: "0"}, {Content: "10"}, {Content: "65"}}, StatusID: "y"},                                                    // totals row, should be skipped
 			},
 		},
 	}
@@ -156,25 +156,56 @@ func TestPlayerGSFromTables(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// 3 + 5 + 0 + 2 = 10 total across players
-	total := 0
-	for _, gs := range result {
-		total += gs
+	// P1=3 (active), P2=5 (active), P3=empty, P4=2 (bench)
+	if result["p1"].gs != 3 {
+		t.Errorf("expected p1 gs=3, got %d", result["p1"].gs)
 	}
-	if total != 10 {
-		t.Errorf("expected total 10, got %d", total)
+	if !result["p1"].active {
+		t.Error("expected p1 active=true")
 	}
-	if result["p1"] != 3 {
-		t.Errorf("expected p1=3, got %d", result["p1"])
+	if result["p2"].gs != 5 {
+		t.Errorf("expected p2 gs=5, got %d", result["p2"].gs)
 	}
-	if result["p2"] != 5 {
-		t.Errorf("expected p2=5, got %d", result["p2"])
+	if result["p4"].gs != 2 {
+		t.Errorf("expected p4 gs=2, got %d", result["p4"].gs)
 	}
-	if result["p4"] != 2 {
-		t.Errorf("expected p4=2, got %d", result["p4"])
+	if result["p4"].active {
+		t.Error("expected p4 active=false (bench)")
 	}
 	if _, ok := result["p3"]; ok {
-		t.Errorf("expected p3 absent (empty GS), got %d", result["p3"])
+		t.Errorf("expected p3 absent (empty GS), got %v", result["p3"])
+	}
+}
+
+func TestPlayerGSFromTables_ActiveOnly(t *testing.T) {
+	tables := []models.RosterTable{
+		{
+			SCGroup: float64(20),
+			Header: models.TableHeader{
+				Cells: []models.Column{{ShortName: "GS"}},
+			},
+			Rows: []models.PlayerRow{
+				{Scorer: models.Player{Name: "Active SP", ScorerID: "a1"}, StatusID: "1", Cells: []models.Cell{{Content: "4"}}},
+				{Scorer: models.Player{Name: "Bench SP", ScorerID: "b1"}, StatusID: "2", Cells: []models.Cell{{Content: "3"}}},
+				{Scorer: models.Player{Name: "IL SP", ScorerID: "i1"}, StatusID: "3", Cells: []models.Cell{{Content: "2"}}},
+				{Scorer: models.Player{Name: "Minors SP", ScorerID: "m1"}, StatusID: "9", Cells: []models.Cell{{Content: "1"}}},
+			},
+		},
+	}
+
+	result, err := playerGSFromTables(tables)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result) != 4 {
+		t.Fatalf("expected 4 players, got %d", len(result))
+	}
+	// All players returned, but only a1 is active
+	if !result["a1"].active {
+		t.Error("expected a1 active")
+	}
+	if result["b1"].active || result["i1"].active || result["m1"].active {
+		t.Error("expected bench/IL/minors to be inactive")
 	}
 }
 

@@ -32,8 +32,8 @@ func runGSCheck(cmd *cobra.Command, args []string) error {
 	if cfg.GSMax <= 0 {
 		return fmt.Errorf("GS_MAX env var required for gs-check command")
 	}
-	if cfg.PushoverUserKey == "" || cfg.PushoverAPIToken == "" {
-		return fmt.Errorf("PUSHOVER_USER_KEY and PUSHOVER_API_TOKEN env vars required for gs-check command")
+	if cfg.PushoverGroupKey == "" || cfg.PushoverAPIToken == "" {
+		return fmt.Errorf("PUSHOVER_GROUP_KEY and PUSHOVER_API_TOKEN env vars required for gs-check command")
 	}
 
 	return gscheck.RunGSCheck(ft, *cfg, forceCheck)

@@ -50,5 +50,5 @@ jobs:
           FANTRAX_MINORS_SLOTS: ${{ secrets.FANTRAX_MINORS_SLOTS }}
           GS_MAX: ${{ secrets.GS_MAX }}
           GS_MIN: ${{ secrets.GS_MIN }}
-          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_GROUP_KEY: ${{ secrets.PUSHOVER_GROUP_KEY }}
           PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}

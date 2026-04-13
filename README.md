@@ -115,7 +115,8 @@ Matchup adjustments (opposing pitcher FIP + platoon splits) are layered on top.
 | `PROSPECT_MIN_GAMES` | 8 | Minimum games for prospect breakout eligibility |
 | `PROSPECT_RANK_CACHE_HOURS` | 168 | Hours to cache prospect rankings |
 | `PROSPECT_UPGRADE_RANK_THRESHOLD` | 20 | Prospect rank threshold for upgrade alerts |
-| `PUSHOVER_USER_KEY` | — | Pushover user key for notifications |
+| `PUSHOVER_USER_KEY` | — | Pushover user key for notifications (trades, lineup) |
+| `PUSHOVER_GROUP_KEY` | — | Pushover group key for GS violation alerts |
 | `PUSHOVER_API_TOKEN` | — | Pushover API token for notifications |
 
 ## Automation

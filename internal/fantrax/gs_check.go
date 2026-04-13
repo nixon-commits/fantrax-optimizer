@@ -136,13 +136,18 @@ type gsRosterRequest struct {
 	StatsType           string `json:"statsType"`
 }
 
+// playerGSSnapshot holds a pitcher's YTD GS and whether they were in an active slot.
+type playerGSSnapshot struct {
+	gs     int
+	active bool
+}
+
 // GetTeamGS returns the total Games Started for active-slot pitchers on a team
-// within the given matchup scoring period. The Fantrax roster API returns
-// cumulative season-to-date stats regardless of which period is requested, so
-// we query two snapshots (day before the period started and last completed day)
-// and compute the per-player delta to isolate period-only GS.
-// seasonStart is the first day of the season (period 1), used to convert dates
-// to daily period numbers.
+// within the given matchup scoring period. It checks each day individually so
+// that a pitcher's GS only counts on days they were in an active lineup slot.
+// A pitcher moved to IL or bench mid-period won't have later starts counted,
+// and a pitcher called up mid-period will have their starts counted from the
+// day they entered an active slot.
 func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today time.Time) (int, error) {
 	// Use yesterday as the last completed day. If the period hasn't started yet, return 0.
 	yesterday := today.Truncate(24*time.Hour).AddDate(0, 0, -1)
@@ -154,38 +159,53 @@ func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today t
 		yesterday = sp.EndDate
 	}
 
-	// Get current YTD GS per player as of yesterday.
-	currentPeriod := PeriodForDate(seasonStart, yesterday)
-	currentGS, err := c.getPlayerGSForPeriod(teamID, currentPeriod)
-	if err != nil {
-		return 0, fmt.Errorf("get current GS: %w", err)
-	}
-
 	// Get baseline YTD GS per player as of the day before the period started.
 	// For the first period of the season, baseline is zero (no prior data).
 	dayBeforePeriod := sp.StartDate.AddDate(0, 0, -1)
-	baselineGS := map[string]int{}
+	prevGS := map[string]int{}
 	if !dayBeforePeriod.Before(seasonStart) {
 		baselinePeriod := PeriodForDate(seasonStart, dayBeforePeriod)
-		baselineGS, err = c.getPlayerGSForPeriod(teamID, baselinePeriod)
+		info, err := c.getPlayerGSSnapshotForPeriod(teamID, baselinePeriod)
 		if err != nil {
 			return 0, fmt.Errorf("get baseline GS: %w", err)
 		}
-	}
-
-	// Sum the per-player deltas.
-	totalGS := 0
-	for playerID, gs := range currentGS {
-		delta := gs - baselineGS[playerID]
-		if delta > 0 {
-			totalGS += delta
+		for pid, snap := range info {
+			prevGS[pid] = snap.gs
 		}
 	}
+
+	// Walk each day of the period. For each day, fetch the roster snapshot to
+	// determine which pitchers are active and compute per-day GS deltas.
+	totalGS := 0
+	for d := sp.StartDate; !d.After(yesterday); d = d.AddDate(0, 0, 1) {
+		period := PeriodForDate(seasonStart, d)
+		info, err := c.getPlayerGSSnapshotForPeriod(teamID, period)
+		if err != nil {
+			return 0, fmt.Errorf("get GS for %s: %w", d.Format("2006-01-02"), err)
+		}
+
+		dayGS := map[string]int{}
+		for pid, snap := range info {
+			dayGS[pid] = snap.gs
+			// Only count this day's GS delta if the pitcher was in an active slot.
+			if snap.active {
+				delta := snap.gs - prevGS[pid]
+				if delta > 0 {
+					totalGS += delta
+				}
+			}
+		}
+		prevGS = dayGS
+
+		// Brief pause between API calls to avoid rate limiting.
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	return totalGS, nil
 }
 
-// getPlayerGSForPeriod returns per-player YTD GS for active-slot pitchers on a single daily period.
-func (c *Client) getPlayerGSForPeriod(teamID string, period int) (map[string]int, error) {
+// getPlayerGSSnapshotForPeriod returns per-player YTD GS and active-slot status for a single daily period.
+func (c *Client) getPlayerGSSnapshotForPeriod(teamID string, period int) (map[string]playerGSSnapshot, error) {
 	data := gsRosterRequest{
 		LeagueID:            c.leagueID,
 		Reload:              "1",
@@ -251,8 +271,9 @@ func (c *Client) getPlayerGSForPeriod(teamID string, period int) (map[string]int
 }
 
 // playerGSFromTables finds the pitching table (scGroup=20) and returns per-player
-// YTD GS for active-slot pitchers (keyed by ScorerID).
-func playerGSFromTables(tables []models.RosterTable) (map[string]int, error) {
+// YTD GS and active-slot status (keyed by ScorerID). StatusID "1" = active slot;
+// "2" = reserve/bench, "3" = IL, "9" = minors.
+func playerGSFromTables(tables []models.RosterTable) (map[string]playerGSSnapshot, error) {
 	for _, table := range tables {
 		if !isPitchingGroup(table.SCGroup) {
 			continue
@@ -266,10 +287,10 @@ func playerGSFromTables(tables []models.RosterTable) (map[string]int, error) {
 			}
 		}
 		if gsIdx == -1 {
-			return map[string]int{}, nil
+			return map[string]playerGSSnapshot{}, nil
 		}
 
-		result := map[string]int{}
+		result := map[string]playerGSSnapshot{}
 		for _, row := range table.Rows {
 			// Skip totals/summary rows (empty name, non-roster status, empty slots).
 			if row.Scorer.Name == "" || row.IsEmptyRosterSlot || row.Scorer.ScorerID == "" {
@@ -286,12 +307,15 @@ func playerGSFromTables(tables []models.RosterTable) (map[string]int, error) {
 			if err != nil {
 				continue
 			}
-			result[row.Scorer.ScorerID] = int(math.Round(val))
+			result[row.Scorer.ScorerID] = playerGSSnapshot{
+				gs:     int(math.Round(val)),
+				active: row.StatusID == "1",
+			}
 		}
 		return result, nil
 	}
 
-	return map[string]int{}, nil
+	return map[string]playerGSSnapshot{}, nil
 }
 
 // isPitchingGroup checks if scGroup represents the pitching group (20).

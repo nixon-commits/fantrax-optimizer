@@ -28,7 +28,7 @@ For local dev, create a `.env` file (gitignored) with `FANTRAX_USERNAME`, `FANTR
 
 Optional env vars with defaults: `GS_MAX` (0 = no limit) — max game starts per matchup week, used by both the optimizer (weekly GS budget) and gs-check (league-wide violation detection). `GS_MIN` (0 = no minimum) — min game starts per matchup week, used by gs-check to flag teams below the floor. `PROSPECT_ROLLING_DAYS` (14), `PROSPECT_MIN_GAMES` (8), `PROSPECT_RANK_CACHE_HOURS` (168), `PROSPECT_UPGRADE_RANK_THRESHOLD` (20).
 
-GS-check env vars (required only for `gs-check` command): `GS_MAX`, `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN`. Optional: `GS_MIN`.
+GS-check env vars (required only for `gs-check` command): `GS_MAX`, `PUSHOVER_GROUP_KEY`, `PUSHOVER_API_TOKEN`. Optional: `GS_MIN`.
 
 ## Architecture
 

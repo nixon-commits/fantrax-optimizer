@@ -176,7 +176,7 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 	}
 
 	// Send Pushover notification.
-	if err := notify.SendPushover(cfg.PushoverUserKey, cfg.PushoverAPIToken, "Fantrax GS Alert", shortSummary); err != nil {
+	if err := notify.SendPushover(cfg.PushoverGroupKey, cfg.PushoverAPIToken, "Fantrax GS Alert", shortSummary); err != nil {
 		return fmt.Errorf("send pushover: %w", err)
 	}
 	fmt.Println("Pushover notification sent.")

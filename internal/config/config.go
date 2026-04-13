@@ -47,6 +47,7 @@ type Config struct {
 
 	// GS-check settings (all optional; validated by the gs-check command).
 	PushoverUserKey  string // Pushover user key for push notifications
+	PushoverGroupKey string // Pushover group key for GS violation alerts
 	PushoverAPIToken string // Pushover app API token
 }
 
@@ -73,6 +74,7 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 		ProspectRankThreshold:  envInt("PROSPECT_UPGRADE_RANK_THRESHOLD", 20),
 
 		PushoverUserKey:  os.Getenv("PUSHOVER_USER_KEY"),
+		PushoverGroupKey: os.Getenv("PUSHOVER_GROUP_KEY"),
 		PushoverAPIToken: os.Getenv("PUSHOVER_API_TOKEN"),
 	}
 
