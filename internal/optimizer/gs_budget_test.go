@@ -204,6 +204,58 @@ func TestApplyGSGate_HighValueFutureCutsTodayWeakest(t *testing.T) {
 	}
 }
 
+func TestApplyGSGate_SkipsLockedPlayers(t *testing.T) {
+	// Locked today SPs must keep their IsStarter status regardless of budget
+	// pressure. Locked active starters already consumed their GS (counted in
+	// Used); locked bench starters won't consume any. Flipping IsStarter on
+	// a locked player only corrupts the displayed pts without affecting the
+	// lineup (can't move locked players).
+	scored := []ScoredPitcher{
+		{Player: fantrax.Player{ID: "locked_active", PosShortNames: "SP", Locked: true}, ExpectedPts: 8, IsStarter: true},
+		{Player: fantrax.Player{ID: "locked_bench", PosShortNames: "SP", Locked: true}, ExpectedPts: 7, IsStarter: true},
+		{Player: fantrax.Player{ID: "unlocked_low", PosShortNames: "SP"}, ExpectedPts: 5, IsStarter: true},
+	}
+	budget := &GSBudget{
+		Limit:   12,
+		Used:    10,
+		Today:   date("2026-04-10"),
+		WeekEnd: date("2026-04-12"),
+		Forecast: []DayForecast{
+			{Date: date("2026-04-11"), ConfirmedStarters: []float64{15, 14, 13}},
+		},
+	}
+	// remaining=2, 6 planned (3 today + 3 future). Locked SPs excluded from
+	// the ranking entirely — only unlocked_low (5pts) competes against
+	// future (15/14/13). It loses and is suppressed. Locked pair stays put.
+	result := applyGSGate(scored, budget)
+	if !result[0].IsStarter {
+		t.Error("locked active SP should keep IsStarter=true (can't be suppressed)")
+	}
+	if !result[1].IsStarter {
+		t.Error("locked bench SP should keep IsStarter=true (can't be suppressed)")
+	}
+	if result[2].IsStarter {
+		t.Error("unlocked SP below future cut should be suppressed")
+	}
+}
+
+func TestApplyGSGate_ZeroRemaining_PreservesLocked(t *testing.T) {
+	// Even when budget is fully spent, locked players keep IsStarter so the
+	// display reflects their actual (already-decided) role.
+	scored := []ScoredPitcher{
+		{Player: fantrax.Player{ID: "locked", Locked: true}, ExpectedPts: 10, IsStarter: true},
+		{Player: fantrax.Player{ID: "unlocked"}, ExpectedPts: 8, IsStarter: true},
+	}
+	budget := &GSBudget{Limit: 12, Used: 12, Today: date("2026-04-10"), WeekEnd: date("2026-04-12")}
+	result := applyGSGate(scored, budget)
+	if !result[0].IsStarter {
+		t.Error("locked player should retain IsStarter even at zero remaining")
+	}
+	if result[1].IsStarter {
+		t.Error("unlocked player should be suppressed at zero remaining")
+	}
+}
+
 func TestApplyGSGate_ZeroRemaining_SuppressesAll(t *testing.T) {
 	scored := []ScoredPitcher{
 		{Player: fantrax.Player{ID: "p1"}, ExpectedPts: 10, IsStarter: true},

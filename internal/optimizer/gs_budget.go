@@ -70,8 +70,10 @@ func (b *GSBudget) FutureDemand() float64 {
 // outside the top `remaining` by value are suppressed, letting the existing
 // 0.10x non-starter discount downstream shift them to bench.
 //
-// This is a strict upgrade over the count-based allocation: a high-value SP
-// today is preserved over mediocre future starts.
+// Locked players are never suppressed: a locked active-slot SP has already
+// consumed its GS (reflected in budget.Used) and a locked bench SP can't
+// be moved into an active slot, so either way gate suppression has no
+// practical effect and only misleads the displayed pts/gate delta.
 func applyGSGate(scored []ScoredPitcher, budget *GSBudget) []ScoredPitcher {
 	if budget == nil || budget.Limit == 0 {
 		return scored
@@ -80,6 +82,13 @@ func applyGSGate(scored []ScoredPitcher, budget *GSBudget) []ScoredPitcher {
 	remaining := budget.Remaining()
 	if remaining <= 0 {
 		for i := range scored {
+			// Locked players' GS is already decided (either consumed in an
+			// active slot or permanently unconsumed on bench) — flipping
+			// their IsStarter has no effect on the lineup and only misleads
+			// the display and pts calculation.
+			if scored[i].Player.Locked {
+				continue
+			}
 			scored[i].IsStarter = false
 		}
 		return scored
@@ -89,9 +98,13 @@ func applyGSGate(scored []ScoredPitcher, budget *GSBudget) []ScoredPitcher {
 		idx int
 		pts float64
 	}
+	// Only unlocked today starters are candidates for suppression. Locked
+	// active SPs have already consumed their GS (counted in budget.Used);
+	// locked bench SPs can't move into an active slot at all. Either way
+	// they don't compete for remaining budget.
 	var todayStarters []starterRef
 	for i, sp := range scored {
-		if sp.IsStarter {
+		if sp.IsStarter && !sp.Player.Locked {
 			todayStarters = append(todayStarters, starterRef{i, sp.ExpectedPts})
 		}
 	}
