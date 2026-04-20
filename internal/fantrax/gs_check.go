@@ -157,7 +157,7 @@ type PitcherStart struct {
 // A pitcher moved to IL or bench mid-period won't have later starts counted,
 // and a pitcher called up mid-period will have their starts counted from the
 // day they entered an active slot.
-func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today time.Time, gsMax int) (int, []PitcherStart, error) {
+func (c *Client) GetTeamGS(teamID, teamName string, sp ScoringPeriod, seasonStart, today time.Time, gsMax int, verbose bool) (int, []PitcherStart, error) {
 	// Use yesterday as the last completed day. If the period hasn't started yet, return 0.
 	yesterday := today.Truncate(24*time.Hour).AddDate(0, 0, -1)
 	if yesterday.Before(sp.StartDate) {
@@ -188,6 +188,19 @@ func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today t
 	// Walk each day of the period. For each day, fetch the roster snapshot to
 	// determine which pitchers are active and compute per-day GS deltas.
 	// Only collect starts that occur after the team has exceeded gsMax.
+	//
+	// prevGS / prevFPts are retained across days (not wiped to dayGS each
+	// iteration). This keeps a pitcher's last known YTD available after he
+	// temporarily vanishes from the pitcher table — e.g. a two-way player like
+	// Ohtani who cycles between hitter and pitcher slots, an IL round trip,
+	// or a brief drop-and-re-add. Without retention, the re-appearance day
+	// computes delta against prev=0 and over-counts his pre-period YTD.
+	//
+	// On a pitcher's first-ever appearance with nothing in prevGS (either a
+	// mid-period pickup or a two-way player slotted as hitter across the
+	// entire baseline-through-earlier days stretch), cap the delta at 1 since
+	// a pitcher cannot earn more than one GS per day. This eliminates the
+	// phantom inflation from counting his pre-period or hitter-slot starts.
 	totalGS := 0
 	var overageStarts []PitcherStart
 	for d := sp.StartDate; !d.After(yesterday); d = d.AddDate(0, 0, 1) {
@@ -197,15 +210,17 @@ func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today t
 			return 0, nil, fmt.Errorf("get GS for %s: %w", d.Format("2006-01-02"), err)
 		}
 
-		dayGS := map[string]int{}
-		dayFPts := map[string]float64{}
 		var dayStarts []PitcherStart
 		for pid, snap := range info {
-			dayGS[pid] = snap.gs
-			dayFPts[pid] = snap.fpts
 			// Only count this day's GS delta if the pitcher was in an active slot.
 			if snap.active {
-				delta := snap.gs - prevGS[pid]
+				prev, existed := prevGS[pid]
+				delta := snap.gs - prev
+				capped := false
+				if !existed && delta > 1 {
+					delta = 1
+					capped = true
+				}
 				if delta > 0 {
 					totalGS += delta
 					fptsDelta := snap.fpts - prevFPts[pid]
@@ -213,8 +228,25 @@ func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today t
 						PitcherName: snap.name,
 						FPts:        fptsDelta,
 					})
+					if verbose {
+						mark := ""
+						if capped {
+							mark = fmt.Sprintf(" [FIRST APPEARANCE — raw delta=+%d, capped to 1]", snap.gs-prev)
+						} else if !existed {
+							mark = " [FIRST APPEARANCE]"
+						}
+						fmt.Printf("      [%s] %s: prev=%d now=%d delta=+%d%s\n",
+							d.Format("2006-01-02"), snap.name, prev, snap.gs, delta, mark)
+					}
+				} else if verbose && !existed && snap.gs > 0 {
+					fmt.Printf("      [%s] %s: first appearance (active, YTD=%d, no new start today)\n",
+						d.Format("2006-01-02"), snap.name, snap.gs)
 				}
 			}
+			// Retain the latest known YTD for this pitcher regardless of active
+			// status, so future days can diff against his real prior YTD.
+			prevGS[pid] = snap.gs
+			prevFPts[pid] = snap.fpts
 		}
 
 		// Collect starts from any day where the team is over gsMax. All starts
@@ -222,9 +254,6 @@ func (c *Client) GetTeamGS(teamID string, sp ScoringPeriod, seasonStart, today t
 		if gsMax > 0 && totalGS > gsMax {
 			overageStarts = append(overageStarts, dayStarts...)
 		}
-
-		prevGS = dayGS
-		prevFPts = dayFPts
 
 		// Brief pause between API calls to avoid rate limiting.
 		time.Sleep(200 * time.Millisecond)
