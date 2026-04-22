@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nixon-commits/rosterbot/internal/backtest"
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/nixon-commits/rosterbot/internal/notify"
 	"github.com/nixon-commits/rosterbot/internal/optimizer"
@@ -23,12 +24,13 @@ import (
 const cacheDir = ".cache"
 
 var (
-	datesStr         string
-	daysAhead        int
-	checkRoster      bool
-	matchupPeriod    bool
-	projectionSystem string
-	showPipeline     bool
+	datesStr           string
+	daysAhead          int
+	checkRoster        bool
+	matchupPeriod      bool
+	projectionSystem   string
+	showPipeline       bool
+	archiveProjections bool
 
 	// projDisplayName maps projection system flag values to display-friendly names.
 	projDisplayName = map[string]string{
@@ -54,7 +56,25 @@ func init() {
 	optimizeCmd.Flags().BoolVar(&checkRoster, "check-roster", true, "check for roster slot mismatches (IL/minors)")
 	optimizeCmd.Flags().StringVar(&projectionSystem, "projections", "depthcharts", "projection system: steamer, depthcharts, thebatx, steamer-ros, depthcharts-ros, thebatx-ros")
 	optimizeCmd.Flags().BoolVar(&showPipeline, "pipeline", false, "show full hitter adjustment pipeline detail")
+	optimizeCmd.Flags().BoolVar(&archiveProjections, "archive-projections", false, "write per-date projection snapshot to .backtest/snapshots/ for future backtesting (also enabled by BACKTEST_ARCHIVE=1)")
 	rootCmd.AddCommand(optimizeCmd)
+}
+
+// dateResult holds the per-date outputs of a single optimization run. Used to
+// pass data between the parallel optimize pass and the sequential print/apply
+// / archive pass.
+type dateResult struct {
+	date             time.Time
+	period           int
+	isToday          bool
+	hitterResult     optimizer.Result
+	pitcherResult    optimizer.PitcherResult
+	warnings         []string
+	venues           map[string]string
+	benchedToday     map[string]bool
+	hitterBreakdowns map[string]*projections.HitterBreakdown
+	hitterPipelines  map[string]*projections.HitterPipelineDetail
+	pitcherPipelines map[string]*projections.PitcherPipelineDetail
 }
 
 func cacheTTL(d time.Duration) time.Duration {
@@ -509,20 +529,6 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	}
 
 	// --- Parallel fetch + optimize for all dates ---
-	type dateResult struct {
-		date             time.Time
-		period           int
-		isToday          bool
-		hitterResult     optimizer.Result
-		pitcherResult    optimizer.PitcherResult
-		warnings         []string
-		venues           map[string]string                             // team → home team (for matchup adjustments)
-		benchedToday     map[string]bool                               // normalized names confirmed out of real-life lineup
-		hitterBreakdowns map[string]*projections.HitterBreakdown       // playerID → breakdown
-		hitterPipelines  map[string]*projections.HitterPipelineDetail  // playerID → pipeline detail
-		pitcherPipelines map[string]*projections.PitcherPipelineDetail // playerID → pipeline detail
-	}
-
 	results := make([]dateResult, len(cfg.Dates))
 
 	prog.Start("Optimize")
@@ -823,6 +829,15 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	}
 	prog.Done("Optimize", "done")
 	prog.Finish()
+
+	// --- Archive per-date projection snapshots (opt-in) ---
+	if archiveProjections || os.Getenv("BACKTEST_ARCHIVE") == "1" {
+		for _, dr := range results {
+			if err := writeProjectionSnapshot(dr, batLoadResult.System); err != nil {
+				fmt.Printf("  ⚠ snapshot archive failed for %s: %v\n", dr.date.Format("2006-01-02"), err)
+			}
+		}
+	}
 
 	// --- Sequential print + apply ---
 	for _, dr := range results {
@@ -1205,4 +1220,59 @@ func sendOptimizeNotify(userKey, apiToken, message string) {
 	if err := notify.SendPushover(userKey, apiToken, "Fantrax Lineup", message); err != nil {
 		log.Printf("WARNING: pushover notification failed: %v", err)
 	}
+}
+
+// writeProjectionSnapshot archives the per-date projection values the optimizer
+// used so a future `rosterbot backtest` can grade projection accuracy exactly
+// (no reconstruction). One file per date at .backtest/snapshots/<YYYY-MM-DD>.json.
+func writeProjectionSnapshot(dr dateResult, projSystem string) error {
+	snap := backtest.Snapshot{
+		Date:             dr.date.Format("2006-01-02"),
+		ProjectionSystem: projSystem,
+		GeneratedAt:      time.Now().UTC(),
+	}
+
+	activeHitters := make(map[string]bool, len(dr.hitterResult.Scored))
+	for _, sp := range dr.hitterResult.Scored {
+		if sp.Player.Status == "Active" {
+			activeHitters[sp.Player.ID] = true
+		}
+	}
+	for _, sp := range dr.hitterResult.Scored {
+		snap.Hitters = append(snap.Hitters, backtest.SnapshotPlayer{
+			PlayerID:       sp.Player.ID,
+			Name:           sp.Player.Name,
+			MLBTeam:        sp.Player.MLBTeam,
+			ProjPtsPerGame: sp.ExpectedPts,
+			HasGame:        sp.HasGame,
+			WasStarted:     activeHitters[sp.Player.ID],
+			IsPitcher:      false,
+		})
+	}
+
+	activePitchers := make(map[string]bool, len(dr.pitcherResult.Scored))
+	for _, sp := range dr.pitcherResult.Scored {
+		if sp.Player.Status == "Active" {
+			activePitchers[sp.Player.ID] = true
+		}
+	}
+	for _, sp := range dr.pitcherResult.Scored {
+		role := "RP"
+		if strings.Contains(sp.Player.PosShortNames, "SP") {
+			role = "SP"
+		}
+		snap.Pitchers = append(snap.Pitchers, backtest.SnapshotPlayer{
+			PlayerID:       sp.Player.ID,
+			Name:           sp.Player.Name,
+			MLBTeam:        sp.Player.MLBTeam,
+			ProjPtsPerGame: sp.ExpectedPts,
+			HasGame:        sp.HasGame,
+			WasStarted:     activePitchers[sp.Player.ID],
+			IsStarter:      sp.IsStarter,
+			Role:           role,
+			IsPitcher:      true,
+		})
+	}
+
+	return backtest.WriteSnapshot(".backtest/snapshots", snap)
 }
