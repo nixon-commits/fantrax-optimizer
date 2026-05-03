@@ -411,27 +411,23 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			prog.Logf("WARNING: could not determine matchup week (%v) — GS limit disabled", err)
 		} else if weekStart.IsZero() {
 			prog.Logf("WARNING: no matchup week found for today — GS limit disabled")
+		} else if pastGS, _, gsErr := ft.GetTeamGS(cfg.TeamID, "", fantrax.ScoringPeriod{StartDate: weekStart, EndDate: today.AddDate(0, 0, -1)}, seasonStart, today, 0, false); gsErr != nil {
+			// Past GS uses the gs_check active-slot delta walk. The probables
+			// list is unreliable as a GS proxy: it counts current-roster SPs
+			// who were probable while sitting on bench (overcount) and misses
+			// SPs dropped after starting in an active slot (undercount). The
+			// walk fetches per-day roster snapshots and counts only active-slot
+			// YTD GS deltas — the same source of truth gs-check uses for
+			// league-wide violation detection.
+			prog.Logf("WARNING: per-day GS walk failed (%v) — GS limit disabled", gsErr)
 		} else {
 			prog.Logf("GS limit: %d per week (%s to %s)",
 				cfg.GSMax,
 				weekStart.Format("2006-01-02"),
 				weekEnd.Format("2006-01-02"))
 
-			// Count past GS: for each past day in the week, check probable starters
-			// and count how many of our rostered SPs started.
 			spNames := rosterSPNames(pitcherRoster)
-			usedGS := 0
-			for d := weekStart; d.Before(today); d = d.AddDate(0, 0, 1) {
-				probs, err := schedClient.ProbableStarters(d)
-				if err != nil || len(probs) == 0 {
-					continue
-				}
-				for normName, team := range probs {
-					if p, ours := spNames[normName]; ours && p.MLBTeam == team {
-						usedGS++
-					}
-				}
-			}
+			usedGS := pastGS
 
 			// Build forecast for remaining days (today+1 through weekEnd).
 			// For confirmed probables, collect each pitcher's projected pts so
@@ -476,10 +472,15 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				forecast = append(forecast, df)
 			}
 
-			// Count today's locked active SP starters toward used GS.
-			// If their game is in progress or final, their GS is consumed.
+			// Count today's locked active SP starters toward used GS. Only count
+			// pitchers who are MLB's probable starter for their team today —
+			// otherwise an active-slot SP-eligible reliever or a non-starting
+			// SP whose team plays gets miscounted as a GS just because the team
+			// game is locked. Probables for completed games stay in the API for
+			// the day, so this captures both in-progress and final starts.
 			lockedTeams, lockErr := schedClient.LockedTeams(today)
-			if lockErr == nil {
+			todayProbs, probsErr := schedClient.ProbableStarters(today)
+			if lockErr == nil && probsErr == nil {
 				for _, p := range pitcherRoster {
 					if p.Status != "Active" || p.InMinors || p.IsInjured {
 						continue
@@ -487,7 +488,10 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 					if !lockedTeams[p.MLBTeam] {
 						continue
 					}
-					if strings.Contains(p.PosShortNames, "SP") {
+					if !strings.Contains(p.PosShortNames, "SP") {
+						continue
+					}
+					if team, ok := todayProbs[projections.NormalizeName(p.Name)]; ok && team == p.MLBTeam {
 						usedGS++
 					}
 				}
