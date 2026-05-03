@@ -10,6 +10,7 @@ Fantasy baseball roster automation for Fantrax head-to-head points leagues. Opti
 - **Trade monitoring** — Fetches recent league trades, values each side using HKB player rankings, and sends a Pushover notification with the trade report.
 - **GS violation detection** — Tallies game starts across all league teams and sends Pushover notifications when a team exceeds the cap.
 - **Roster hygiene** — Flags healthy players stuck in IL slots, called-up players still in Minors slots, and injured players occupying active slots.
+- **Backtesting** — Grades past lineup moves against the hindsight-optimal lineup and measures projection accuracy against actual fantasy points.
 
 ## Quick Start
 
@@ -72,6 +73,15 @@ rosterbot transactions --dry-run
 # Check GS violations
 rosterbot gs-check --dry-run --force
 
+# Backtest last completed matchup week (lineup + projection accuracy)
+rosterbot backtest
+
+# Backtest a specific window
+rosterbot backtest --dates 2026-04-13:2026-04-19
+
+# Archive today's projections so a future backtest can grade them exactly
+rosterbot optimize --dry-run --archive-projections
+
 # Print league scoring weights
 rosterbot scoring
 ```
@@ -118,6 +128,7 @@ Matchup adjustments (opposing pitcher FIP + platoon splits) are layered on top.
 | `PUSHOVER_USER_KEY` | — | Pushover user key for notifications (trades, lineup) |
 | `PUSHOVER_GROUP_KEY` | — | Pushover group key for GS violation alerts |
 | `PUSHOVER_API_TOKEN` | — | Pushover API token for notifications |
+| `BACKTEST_ARCHIVE` | — | Set to `1` to archive every `optimize` run's projections to `.backtest/snapshots/` for later grading (same as `--archive-projections`) |
 
 ## Automation
 
@@ -155,4 +166,5 @@ internal/
   gscheck/        league-wide GS violation checker
   roster/         roster hygiene alerts
   notify/         Pushover push notifications
+  backtest/       grade past lineup moves + projection accuracy
 ```

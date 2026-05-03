@@ -4,6 +4,7 @@ rosterbot
 .claude/settings.local.json
 .cache/
 .fantrax-cache/
+.backtest/
 .superpowers/
 fangraphs-leaderboard-projections*.csv
 verify_periods

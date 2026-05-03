@@ -18,6 +18,10 @@ go run . prospects --dry-run  # run prospect report locally
 go run . gs-check --dry-run --force  # check GS violations for most recent period
 go run . gs-check --dry-run          # check GS violations (only if yesterday ended a period)
 go run . transactions --dry-run      # check recent trades with HKB valuations
+go run . backtest                                    # backtest last completed matchup week
+go run . backtest --dates 2026-04-13:2026-04-19      # backtest a specific window
+go run . backtest --skip-projections                 # lineup-only backtest (faster)
+go run . optimize --dry-run --archive-projections    # archive projections for future backtests
 ```
 
 After making code changes, always run `go vet ./...` and `go mod tidy` to catch issues early. Note: `gofmt` and `go vet` run automatically via PostToolUse hooks on every Edit/Write.
@@ -65,6 +69,14 @@ fangraphs proj  ──┘
 **`internal/gscheck`** — league-wide GS violation checker. `RunGSCheck` fetches all scoring periods and teams via `getStandings`, iterates every team to tally active-slot pitcher GS for a completed period, detects violations (GS > max or GS < min), and sends a Pushover notification. The `gs-check` CLI command validates that `GS_MAX`, `PUSHOVER_USER_KEY`, and `PUSHOVER_API_TOKEN` are set before running.
 
 **`internal/transactions`** — trade monitor. `CheckTrades` fetches recent Fantrax league trades (last 24 hours) via `GetRecentTrades`, groups them by `TradeGroupID`, values each side using HKB player rankings, and sends a Pushover notification with the trade report. Uses normalized name matching (lowercase, stripped suffixes) to join Fantrax player names to HKB data. Requires `PUSHOVER_USER_KEY` and `PUSHOVER_API_TOKEN` for notifications (skips if not set).
+
+**`internal/backtest`** — grades past work against actual outcomes. Two analyses:
+- **Lineup grading**: for each past day, computes an actual-points total (sum of FPts for active-slot players) and a hindsight-optimal total (the existing optimizer run against a `hindsightSource` that returns each player's actual FPts as pts-per-game via the `PtsPerGameSource` / `PitcherPtsPerGameSource` interfaces). `Gap = actual - optimal`; negative means points left on bench. SP-eligible pitchers who actually appeared are fed to the optimizer as "probable starters" so the 0.10x non-starter discount doesn't apply in hindsight.
+- **Projection grading**: checks `.backtest/snapshots/<YYYY-MM-DD>.json` for archived per-player projection values written by `optimize --archive-projections`. When present, compares against actual FPts for a MAE/Bias/RMSE report. When absent, the day is marked `source="missing"` — reconstruction from the current pipeline is a future extension; for now the advice is to turn on archiving.
+
+Per-day FPts come from `fantrax.DailyFantasyPoints` (in `internal/fantrax/daily_fpts.go`), which walks a period range and diffs consecutive YTD snapshots via `playerStatsFromTables`. This generalizes the pitcher-only `playerGSFromTables` to cover both `scGroup=10` (hitting) and `scGroup=20` (pitching). First-appearance deltas are capped at `DefaultMaxDailyFP=30` to suppress pre-period YTD baselines, mirroring the GS first-appearance cap in `gs_check.go`. Per-period snapshots are cached at `.cache/backtest-snapshot-<teamID>-<period>.json` with a 30-day TTL since past periods are immutable.
+
+The snapshot archive is opt-in (`--archive-projections` flag or `BACKTEST_ARCHIVE=1` env var) so normal `optimize` runs stay side-effect-free. Snapshots are rewritten if the same date is optimized twice — last run wins, which is fine since GHA runs once per day per date.
 
 **`internal/notify`** — notification helpers. `SendPushover` sends push notifications via the Pushover API. Self-contained function taking explicit parameters (no config dependency).
 

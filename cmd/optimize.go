@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nixon-commits/rosterbot/internal/backtest"
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/nixon-commits/rosterbot/internal/notify"
 	"github.com/nixon-commits/rosterbot/internal/optimizer"
@@ -23,12 +24,13 @@ import (
 const cacheDir = ".cache"
 
 var (
-	datesStr         string
-	daysAhead        int
-	checkRoster      bool
-	matchupPeriod    bool
-	projectionSystem string
-	showPipeline     bool
+	datesStr           string
+	daysAhead          int
+	checkRoster        bool
+	matchupPeriod      bool
+	projectionSystem   string
+	showPipeline       bool
+	archiveProjections bool
 
 	// projDisplayName maps projection system flag values to display-friendly names.
 	projDisplayName = map[string]string{
@@ -54,7 +56,25 @@ func init() {
 	optimizeCmd.Flags().BoolVar(&checkRoster, "check-roster", true, "check for roster slot mismatches (IL/minors)")
 	optimizeCmd.Flags().StringVar(&projectionSystem, "projections", "depthcharts", "projection system: steamer, depthcharts, thebatx, steamer-ros, depthcharts-ros, thebatx-ros")
 	optimizeCmd.Flags().BoolVar(&showPipeline, "pipeline", false, "show full hitter adjustment pipeline detail")
+	optimizeCmd.Flags().BoolVar(&archiveProjections, "archive-projections", false, "write per-date projection snapshot to .backtest/snapshots/ for future backtesting (also enabled by BACKTEST_ARCHIVE=1)")
 	rootCmd.AddCommand(optimizeCmd)
+}
+
+// dateResult holds the per-date outputs of a single optimization run. Used to
+// pass data between the parallel optimize pass and the sequential print/apply
+// / archive pass.
+type dateResult struct {
+	date             time.Time
+	period           int
+	isToday          bool
+	hitterResult     optimizer.Result
+	pitcherResult    optimizer.PitcherResult
+	warnings         []string
+	venues           map[string]string
+	benchedToday     map[string]bool
+	hitterBreakdowns map[string]*projections.HitterBreakdown
+	hitterPipelines  map[string]*projections.HitterPipelineDetail
+	pitcherPipelines map[string]*projections.PitcherPipelineDetail
 }
 
 func cacheTTL(d time.Duration) time.Duration {
@@ -391,27 +411,23 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			prog.Logf("WARNING: could not determine matchup week (%v) — GS limit disabled", err)
 		} else if weekStart.IsZero() {
 			prog.Logf("WARNING: no matchup week found for today — GS limit disabled")
+		} else if pastGS, _, gsErr := ft.GetTeamGS(cfg.TeamID, "", fantrax.ScoringPeriod{StartDate: weekStart, EndDate: today.AddDate(0, 0, -1)}, seasonStart, today, 0, false); gsErr != nil {
+			// Past GS uses the gs_check active-slot delta walk. The probables
+			// list is unreliable as a GS proxy: it counts current-roster SPs
+			// who were probable while sitting on bench (overcount) and misses
+			// SPs dropped after starting in an active slot (undercount). The
+			// walk fetches per-day roster snapshots and counts only active-slot
+			// YTD GS deltas — the same source of truth gs-check uses for
+			// league-wide violation detection.
+			prog.Logf("WARNING: per-day GS walk failed (%v) — GS limit disabled", gsErr)
 		} else {
 			prog.Logf("GS limit: %d per week (%s to %s)",
 				cfg.GSMax,
 				weekStart.Format("2006-01-02"),
 				weekEnd.Format("2006-01-02"))
 
-			// Count past GS: for each past day in the week, check probable starters
-			// and count how many of our rostered SPs started.
 			spNames := rosterSPNames(pitcherRoster)
-			usedGS := 0
-			for d := weekStart; d.Before(today); d = d.AddDate(0, 0, 1) {
-				probs, err := schedClient.ProbableStarters(d)
-				if err != nil || len(probs) == 0 {
-					continue
-				}
-				for normName, team := range probs {
-					if p, ours := spNames[normName]; ours && p.MLBTeam == team {
-						usedGS++
-					}
-				}
-			}
+			usedGS := pastGS
 
 			// Build forecast for remaining days (today+1 through weekEnd).
 			// For confirmed probables, collect each pitcher's projected pts so
@@ -456,10 +472,15 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				forecast = append(forecast, df)
 			}
 
-			// Count today's locked active SP starters toward used GS.
-			// If their game is in progress or final, their GS is consumed.
+			// Count today's locked active SP starters toward used GS. Only count
+			// pitchers who are MLB's probable starter for their team today —
+			// otherwise an active-slot SP-eligible reliever or a non-starting
+			// SP whose team plays gets miscounted as a GS just because the team
+			// game is locked. Probables for completed games stay in the API for
+			// the day, so this captures both in-progress and final starts.
 			lockedTeams, lockErr := schedClient.LockedTeams(today)
-			if lockErr == nil {
+			todayProbs, probsErr := schedClient.ProbableStarters(today)
+			if lockErr == nil && probsErr == nil {
 				for _, p := range pitcherRoster {
 					if p.Status != "Active" || p.InMinors || p.IsInjured {
 						continue
@@ -467,7 +488,10 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 					if !lockedTeams[p.MLBTeam] {
 						continue
 					}
-					if strings.Contains(p.PosShortNames, "SP") {
+					if !strings.Contains(p.PosShortNames, "SP") {
+						continue
+					}
+					if team, ok := todayProbs[projections.NormalizeName(p.Name)]; ok && team == p.MLBTeam {
 						usedGS++
 					}
 				}
@@ -509,20 +533,6 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	}
 
 	// --- Parallel fetch + optimize for all dates ---
-	type dateResult struct {
-		date             time.Time
-		period           int
-		isToday          bool
-		hitterResult     optimizer.Result
-		pitcherResult    optimizer.PitcherResult
-		warnings         []string
-		venues           map[string]string                             // team → home team (for matchup adjustments)
-		benchedToday     map[string]bool                               // normalized names confirmed out of real-life lineup
-		hitterBreakdowns map[string]*projections.HitterBreakdown       // playerID → breakdown
-		hitterPipelines  map[string]*projections.HitterPipelineDetail  // playerID → pipeline detail
-		pitcherPipelines map[string]*projections.PitcherPipelineDetail // playerID → pipeline detail
-	}
-
 	results := make([]dateResult, len(cfg.Dates))
 
 	prog.Start("Optimize")
@@ -824,6 +834,15 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	prog.Done("Optimize", "done")
 	prog.Finish()
 
+	// --- Archive per-date projection snapshots (opt-in) ---
+	if archiveProjections || os.Getenv("BACKTEST_ARCHIVE") == "1" {
+		for _, dr := range results {
+			if err := writeProjectionSnapshot(dr, batLoadResult.System); err != nil {
+				fmt.Printf("  ⚠ snapshot archive failed for %s: %v\n", dr.date.Format("2006-01-02"), err)
+			}
+		}
+	}
+
 	// --- Sequential print + apply ---
 	for _, dr := range results {
 		for _, w := range dr.warnings {
@@ -1028,10 +1047,18 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		fmt.Printf("\n  %-26s %6.2f\n", "Combined Expected", hitterStartingPts+pitcherStartingPts)
 
 		// --- Hitter pipeline detail ---
+		// Both pipeline tables share the same column geometry so they line up:
+		//   indent(2) Player(24) Base(7) Mix(4) Blend(7) Mid1(7) Mid2(7) Final(7)
+		// with 2-space gaps. Total visible width = 2 + 24 + 2 + 7 + 2 + 4 + 2 + 7
+		// + 2 + 7 + 2 + 7 + 2 + 7 + 1(│) = 78.
+		// Hitters fill Mid1 with Platoon and Mid2 with Opp SP. Pitchers leave
+		// Mid1 blank and put Gate in Mid2 so the rightmost adjustment column
+		// aligns between tables.
+		const pipelineWidth = 78
+
 		if showPipeline && len(dr.hitterPipelines) > 0 {
 			fmt.Println()
 
-			// Sort by final pts descending.
 			pipelineSorted := make([]optimizer.ScoredPlayer, 0, len(dr.hitterPipelines))
 			for _, sp := range dr.hitterResult.Scored {
 				if _, ok := dr.hitterPipelines[sp.Player.ID]; ok {
@@ -1044,21 +1071,18 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				return pi.FinalPtsPerGame > pj.FinalPtsPerGame
 			})
 
-			// Header — 7-char columns with 2-space gaps.
-			// Header row = "    %-19s  %7s×5│" = 4+19 + 5*(2+7) + 1 = 69 visible chars.
-			// Title/footer lines must also be 69 visible chars (including ╮/╯).
 			titlePrefix := "  Hitter Pipeline "
-			dashes := 69 - len(titlePrefix) - 1 // -1 for ╮
-			fmt.Printf("%s%s╮\n", titlePrefix, strings.Repeat("─", dashes))
-			fmt.Printf("    %-19s  %7s  %7s  %7s  %7s  %7s│\n",
-				"Player", "Base", "Blend", "Platoon", "Opp SP", "Final")
-			fmt.Printf("  %s╯\n", strings.Repeat("─", 69-2-1)) // -2 for indent, -1 for ╯
+			fmt.Printf("%s%s╮\n", titlePrefix, strings.Repeat("─", pipelineWidth-len(titlePrefix)-1))
+			fmt.Printf("  %-24s  %7s  %4s  %7s  %7s  %7s  %7s│\n",
+				"Player", "Base", "Mix", "Blend", "Platoon", "Opp SP", "Final")
+			fmt.Printf("  %s╯\n", strings.Repeat("─", pipelineWidth-2-1))
 
 			for _, sp := range pipelineSorted {
 				pd := dr.hitterPipelines[sp.Player.ID]
-				fmt.Printf("    %-19s  %7.2f  %s  %s  %s  %7.2f\n",
-					truncName(sp.Player.Name, 19),
+				fmt.Printf("  %-24s  %7.2f  %s  %s  %s  %s  %7.2f\n",
+					truncName(sp.Player.Name, 24),
 					pd.BasePtsPerGame,
+					formatBlendMix(pd.BaseWt, pd.HasRecent),
 					colorDelta(pd.BlendDelta),
 					colorDelta(pd.PlatoonDelta),
 					colorDelta(pd.QualityDelta),
@@ -1071,7 +1095,6 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		if showPipeline && len(dr.pitcherPipelines) > 0 {
 			fmt.Println()
 
-			// Sort by final pts descending.
 			pitPipelineSorted := make([]optimizer.ScoredPitcher, 0, len(dr.pitcherPipelines))
 			for _, sp := range dr.pitcherResult.Scored {
 				if _, ok := dr.pitcherPipelines[sp.Player.ID]; ok {
@@ -1084,23 +1107,20 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				return pi.FinalPtsPerGame > pj.FinalPtsPerGame
 			})
 
-			// Header — columns: Player(19) + Role(4) + Base(7) + Blend(7) + Gate(7) + Final(7)
-			// "    %-19s  %4s  %7s  %7s  %7s  %7s│" = 4+19 + (2+4) + 4*(2+7) + 1 = 66 visible chars.
-			const pitWidth = 66
 			titlePrefix := "  Pitcher Pipeline "
-			dashes := pitWidth - len(titlePrefix) - 1
-			fmt.Printf("%s%s╮\n", titlePrefix, strings.Repeat("─", dashes))
-			fmt.Printf("    %-19s  %4s  %7s  %7s  %7s  %7s│\n",
-				"Player", "Role", "Base", "Blend", "Gate", "Final")
-			fmt.Printf("  %s╯\n", strings.Repeat("─", pitWidth-2-1))
+			fmt.Printf("%s%s╮\n", titlePrefix, strings.Repeat("─", pipelineWidth-len(titlePrefix)-1))
+			fmt.Printf("  %-24s  %7s  %4s  %7s  %7s  %7s  %7s│\n",
+				"Player", "Base", "Mix", "Blend", "", "Gate", "Final")
+			fmt.Printf("  %s╯\n", strings.Repeat("─", pipelineWidth-2-1))
 
 			for _, sp := range pitPipelineSorted {
 				pd := dr.pitcherPipelines[sp.Player.ID]
-				fmt.Printf("    %-19s  %4s  %7.2f  %s  %s  %7.2f\n",
-					truncName(sp.Player.Name, 19),
-					pd.Role,
+				fmt.Printf("  %-24s  %7.2f  %s  %s  %7s  %s  %7.2f\n",
+					truncName(sp.Player.Name, 24),
 					pd.BasePtsPerGame,
+					formatBlendMix(pd.BaseWt, pd.HasRecent),
 					colorDelta(pd.BlendDelta),
+					"",
 					colorDelta(pd.GateDelta),
 					pd.FinalPtsPerGame,
 				)
@@ -1148,10 +1168,10 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 
 		fmt.Printf("\n  Changes (%+.2f pts) %s\n", delta, strings.Repeat("─", 35))
 		for _, ps := range allActivate {
-			fmt.Printf("    ↑ %-22s → %-4s  %+6.2f\n", playerName[ps.PlayerID], slotName[ps.PosID], ptsMap[ps.PlayerID])
+			fmt.Printf("    ↑ %-24s → %-4s  %+6.2f\n", playerName[ps.PlayerID], slotName[ps.PosID], ptsMap[ps.PlayerID])
 		}
 		for _, id := range allBench {
-			fmt.Printf("    ↓ %-22s → BN    %+6.2f\n", playerName[id], -ptsMap[id])
+			fmt.Printf("    ↓ %-24s → BN    %+6.2f\n", playerName[id], -ptsMap[id])
 		}
 
 		if cfg.DryRun {
@@ -1205,4 +1225,59 @@ func sendOptimizeNotify(userKey, apiToken, message string) {
 	if err := notify.SendPushover(userKey, apiToken, "Fantrax Lineup", message); err != nil {
 		log.Printf("WARNING: pushover notification failed: %v", err)
 	}
+}
+
+// writeProjectionSnapshot archives the per-date projection values the optimizer
+// used so a future `rosterbot backtest` can grade projection accuracy exactly
+// (no reconstruction). One file per date at .backtest/snapshots/<YYYY-MM-DD>.json.
+func writeProjectionSnapshot(dr dateResult, projSystem string) error {
+	snap := backtest.Snapshot{
+		Date:             dr.date.Format("2006-01-02"),
+		ProjectionSystem: projSystem,
+		GeneratedAt:      time.Now().UTC(),
+	}
+
+	activeHitters := make(map[string]bool, len(dr.hitterResult.Scored))
+	for _, sp := range dr.hitterResult.Scored {
+		if sp.Player.Status == "Active" {
+			activeHitters[sp.Player.ID] = true
+		}
+	}
+	for _, sp := range dr.hitterResult.Scored {
+		snap.Hitters = append(snap.Hitters, backtest.SnapshotPlayer{
+			PlayerID:       sp.Player.ID,
+			Name:           sp.Player.Name,
+			MLBTeam:        sp.Player.MLBTeam,
+			ProjPtsPerGame: sp.ExpectedPts,
+			HasGame:        sp.HasGame,
+			WasStarted:     activeHitters[sp.Player.ID],
+			IsPitcher:      false,
+		})
+	}
+
+	activePitchers := make(map[string]bool, len(dr.pitcherResult.Scored))
+	for _, sp := range dr.pitcherResult.Scored {
+		if sp.Player.Status == "Active" {
+			activePitchers[sp.Player.ID] = true
+		}
+	}
+	for _, sp := range dr.pitcherResult.Scored {
+		role := "RP"
+		if strings.Contains(sp.Player.PosShortNames, "SP") {
+			role = "SP"
+		}
+		snap.Pitchers = append(snap.Pitchers, backtest.SnapshotPlayer{
+			PlayerID:       sp.Player.ID,
+			Name:           sp.Player.Name,
+			MLBTeam:        sp.Player.MLBTeam,
+			ProjPtsPerGame: sp.ExpectedPts,
+			HasGame:        sp.HasGame,
+			WasStarted:     activePitchers[sp.Player.ID],
+			IsStarter:      sp.IsStarter,
+			Role:           role,
+			IsPitcher:      true,
+		})
+	}
+
+	return backtest.WriteSnapshot(".backtest/snapshots", snap)
 }
