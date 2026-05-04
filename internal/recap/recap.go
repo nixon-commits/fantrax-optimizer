@@ -9,6 +9,7 @@ import (
 
 	"github.com/nixon-commits/rosterbot/internal/backtest"
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/schedule"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -108,6 +109,11 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 		allActive = append(allActive, td.active...)
 		allStarts = append(allStarts, td.starts...)
 	}
+
+	// Attach each start's opponent via the MLB schedule. One fetch per unique
+	// date in the week. Soft-fail if the schedule API is unreachable — the
+	// label just won't render.
+	annotateOpponents(allStarts)
 
 	// Stable sort by efficiency descending so the rendered "Team Performance"
 	// table always reads top-to-bottom by efficiency.
@@ -230,6 +236,7 @@ func collectTeam(
 			Date:      s.Date,
 			FPts:      s.FPts,
 			OwnerTeam: teamName,
+			MLBTeam:   s.MLBTeam,
 		})
 	}
 
@@ -261,6 +268,37 @@ func extractActivePlayerLines(days []fantrax.DayRoster, ownerTeam string) []Play
 		}
 	}
 	return active
+}
+
+// annotateOpponents fills the Opponent field on each start by looking up the
+// MLB schedule for that date. One schedule fetch per unique date. Soft-fails
+// silently — a missing opponent just renders blank.
+func annotateOpponents(starts []PitcherStartLine) {
+	if len(starts) == 0 {
+		return
+	}
+	sched := schedule.NewClient()
+	cache := map[string]map[string]string{}
+	for i := range starts {
+		s := &starts[i]
+		if s.MLBTeam == "" || s.Date.IsZero() {
+			continue
+		}
+		key := s.Date.Format("2006-01-02")
+		opp, fetched := cache[key]
+		if !fetched {
+			fetched := false
+			if got, err := sched.OpponentsOn(s.Date); err == nil {
+				opp = got
+			}
+			_ = fetched
+			cache[key] = opp
+		}
+		if opp == nil {
+			continue
+		}
+		s.Opponent = opp[s.MLBTeam]
+	}
 }
 
 // pairsForWeek returns one (homeID, awayID) pair per matchup that touches the

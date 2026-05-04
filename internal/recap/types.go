@@ -60,10 +60,13 @@ type PlayerLine struct {
 // PitcherStartLine is one SP game-start record for the week, used for
 // best/worst single-game-start awards.
 type PitcherStartLine struct {
-	Name      string    `json:"name"`
-	Date      time.Time `json:"date"`
-	FPts      float64   `json:"fpts"`
-	OwnerTeam string    `json:"owner_team"`
+	Name       string    `json:"name"`
+	Date       time.Time `json:"date"`
+	FPts       float64   `json:"fpts"`
+	OwnerTeam  string    `json:"owner_team"`
+	MLBTeam    string    `json:"mlb_team,omitempty"`
+	Opponent   string    `json:"opponent,omitempty"`
+	WeekNumber int       `json:"week_number,omitempty"` // populated by season aggregator
 }
 
 // MatchupTeamSide is one side of an H2H matchup, suitable for "Highest Pts in
@@ -105,16 +108,28 @@ type WeekLink struct {
 	IsCurrent  bool   `json:"is_current,omitempty"`
 }
 
-// SeasonAwardLine is one team's cumulative weekly-award tally for the season.
-type SeasonAwardLine struct {
+// SeasonAwardTeam is one team's cumulative count for a particular award.
+type SeasonAwardTeam struct {
 	TeamID   string `json:"team_id"`
 	TeamName string `json:"team_name"`
 	Count    int    `json:"count"`
 }
 
+// SeasonAwardCategory groups all teams that have earned a given weekly award
+// at least once during the season.
+type SeasonAwardCategory struct {
+	AwardName string            `json:"award_name"`
+	Teams     []SeasonAwardTeam `json:"teams"` // sorted by Count desc, then TeamID asc
+}
+
 // SeasonAwards is the season-to-date leaderboard of weekly awards collected,
-// rendered at the bottom of each weekly recap page in site mode.
+// rendered at the bottom of each weekly recap page in site mode. Each
+// category lists every team that has earned that award and how many times.
+// Shellings is a separate season-wide list of the worst pitcher starts
+// (across all teams) — the per-week WorstSingleStart awards re-ranked by
+// FPts ascending.
 type SeasonAwards struct {
-	ThroughWeek int               `json:"through_week"`
-	Teams       []SeasonAwardLine `json:"teams"` // sorted by Count desc, then TeamID asc
+	ThroughWeek int                   `json:"through_week"`
+	Categories  []SeasonAwardCategory `json:"categories"`
+	Shellings   []PitcherStartLine    `json:"shellings,omitempty"`
 }

@@ -136,12 +136,14 @@ type gsRosterRequest struct {
 	StatsType           string `json:"statsType"`
 }
 
-// playerGSSnapshot holds a pitcher's YTD GS, YTD fantasy points, name, and active-slot status.
+// playerGSSnapshot holds a pitcher's YTD GS, YTD fantasy points, name, MLB
+// team abbreviation, and active-slot status.
 type playerGSSnapshot struct {
-	gs     int
-	fpts   float64
-	name   string
-	active bool
+	gs      int
+	fpts    float64
+	name    string
+	mlbTeam string
+	active  bool
 }
 
 // PitcherStart records a single active-slot pitcher game start with its fantasy points.
@@ -378,10 +380,11 @@ func playerGSFromTables(tables []models.RosterTable) (map[string]playerGSSnapsho
 			}
 
 			result[row.Scorer.ScorerID] = playerGSSnapshot{
-				gs:     int(math.Round(val)),
-				fpts:   fpts,
-				name:   row.Scorer.Name,
-				active: row.StatusID == "1",
+				gs:      int(math.Round(val)),
+				fpts:    fpts,
+				name:    row.Scorer.Name,
+				mlbTeam: row.Scorer.TeamShortName,
+				active:  row.StatusID == "1",
 			}
 		}
 		return result, nil

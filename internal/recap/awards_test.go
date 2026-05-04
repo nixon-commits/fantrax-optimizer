@@ -229,11 +229,27 @@ func TestEfficiencyTieBreaker(t *testing.T) {
 	}
 }
 
-// findCount returns the Count for teamID in a snapshot, or -1 if missing.
-func findCount(snap *SeasonAwards, teamID string) int {
-	for _, ln := range snap.Teams {
-		if ln.TeamID == teamID {
-			return ln.Count
+// findCategory returns the SeasonAwardCategory for the given award name, or
+// nil if absent from the snapshot.
+func findCategory(snap *SeasonAwards, awardName string) *SeasonAwardCategory {
+	for i := range snap.Categories {
+		if snap.Categories[i].AwardName == awardName {
+			return &snap.Categories[i]
+		}
+	}
+	return nil
+}
+
+// teamCountInCategory returns the cumulative count for teamID under the given
+// award category, or -1 if the team isn't listed.
+func teamCountInCategory(snap *SeasonAwards, awardName, teamID string) int {
+	cat := findCategory(snap, awardName)
+	if cat == nil {
+		return -1
+	}
+	for _, t := range cat.Teams {
+		if t.TeamID == teamID {
+			return t.Count
 		}
 	}
 	return -1
@@ -269,22 +285,30 @@ func TestAggregateSeasonAwards_AttributesEachAwardOnce(t *testing.T) {
 	if snap.ThroughWeek != 1 {
 		t.Errorf("ThroughWeek = %d, want 1", snap.ThroughWeek)
 	}
-	// Alpha: MostEff + HighestScore + Blowout winner + Best start = 4
-	// Bravo: NarrowVictory winner + LowestPtsInWin = 2
-	// Charlie: LeastEff + LowestScore + HighestPtsInLoss + Worst start = 4
-	if c := findCount(snap, "a"); c != 4 {
-		t.Errorf("Alpha count = %d, want 4", c)
+	// Spot-check attribution per award category.
+	checks := []struct {
+		award, team string
+		want        int
+	}{
+		{AwardMostEfficient, "a", 1},
+		{AwardLeastEfficient, "c", 1},
+		{AwardHighestScore, "a", 1},
+		{AwardLowestScore, "c", 1},
+		{AwardBiggestBlowout, "a", 1},
+		{AwardNarrowVictory, "b", 1},
+		{AwardHighestPtsLoss, "c", 1},
+		{AwardLowestPtsWin, "b", 1},
+		{AwardBestStart, "a", 1},
+		{AwardWorstStart, "c", 1},
 	}
-	if c := findCount(snap, "b"); c != 2 {
-		t.Errorf("Bravo count = %d, want 2", c)
+	for _, c := range checks {
+		if got := teamCountInCategory(snap, c.award, c.team); got != c.want {
+			t.Errorf("%s for %s = %d, want %d", c.award, c.team, got, c.want)
+		}
 	}
-	if c := findCount(snap, "c"); c != 4 {
-		t.Errorf("Charlie count = %d, want 4", c)
-	}
-	// Sort: a and c tied at 4 → "a" first lexically; b last at 2.
-	if snap.Teams[0].TeamID != "a" || snap.Teams[1].TeamID != "c" || snap.Teams[2].TeamID != "b" {
-		t.Errorf("order = [%s,%s,%s], want [a,c,b]",
-			snap.Teams[0].TeamID, snap.Teams[1].TeamID, snap.Teams[2].TeamID)
+	// Categories appear in the configured display order.
+	if snap.Categories[0].AwardName != AwardMostEfficient {
+		t.Errorf("first category = %q, want %q", snap.Categories[0].AwardName, AwardMostEfficient)
 	}
 }
 
@@ -299,13 +323,8 @@ func TestAggregateSeasonAwards_NilAwardsAreSkipped(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("want 1 snapshot")
 	}
-	for _, ln := range got[0].Teams {
-		if ln.Count != 0 {
-			t.Errorf("team %s count = %d, want 0 (no awards present)", ln.TeamID, ln.Count)
-		}
-	}
-	if len(got[0].Teams) != 2 {
-		t.Errorf("Teams len = %d, want 2 (every roster team listed even at zero)", len(got[0].Teams))
+	if len(got[0].Categories) != 0 {
+		t.Errorf("Categories should be empty when no awards present, got %d", len(got[0].Categories))
 	}
 }
 
@@ -319,8 +338,8 @@ func TestAggregateSeasonAwards_PitcherStartUnmappableNameSkipped(t *testing.T) {
 		},
 	}
 	got := AggregateSeasonAwards([]*Recap{r})
-	if c := findCount(got[0], "a"); c != 0 {
-		t.Errorf("Alpha count = %d, want 0 (orphan owner name should be silently dropped)", c)
+	if cat := findCategory(got[0], AwardBestStart); cat != nil {
+		t.Errorf("Best Start category should be omitted when only earner is unmappable, got %+v", cat)
 	}
 }
 
@@ -345,30 +364,28 @@ func TestAggregateSeasonAwards_CumulativeAcrossWeeks(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("want 3 snapshots, got %d", len(got))
 	}
-	if got[0].ThroughWeek != 1 || got[1].ThroughWeek != 2 || got[2].ThroughWeek != 3 {
-		t.Errorf("ThroughWeek values = %d,%d,%d", got[0].ThroughWeek, got[1].ThroughWeek, got[2].ThroughWeek)
+	// After week 1: a has 1 HighestScore.
+	if c := teamCountInCategory(got[0], AwardHighestScore, "a"); c != 1 {
+		t.Errorf("week 1 Alpha HighestScore = %d, want 1", c)
 	}
-	// After week 1: a=1, b=0
-	if c := findCount(got[0], "a"); c != 1 {
-		t.Errorf("week 1 Alpha count = %d, want 1", c)
+	// After week 2: a has 2 HighestScore, b has 1 BestTeam.
+	if c := teamCountInCategory(got[1], AwardHighestScore, "a"); c != 2 {
+		t.Errorf("week 2 Alpha HighestScore = %d, want 2", c)
 	}
-	// After week 2: a=2, b=1
-	if c := findCount(got[1], "a"); c != 2 {
-		t.Errorf("week 2 Alpha count = %d, want 2", c)
+	if c := teamCountInCategory(got[1], AwardMostEfficient, "b"); c != 1 {
+		t.Errorf("week 2 Bravo BestTeam = %d, want 1", c)
 	}
-	if c := findCount(got[1], "b"); c != 1 {
-		t.Errorf("week 2 Bravo count = %d, want 1", c)
+	// After week 3: a still has 2 HighestScore (from w1+w2), b has 1.
+	if c := teamCountInCategory(got[2], AwardHighestScore, "a"); c != 2 {
+		t.Errorf("week 3 Alpha HighestScore = %d, want 2", c)
 	}
-	// After week 3: a=2, b=2
-	if c := findCount(got[2], "a"); c != 2 {
-		t.Errorf("week 3 Alpha count = %d, want 2", c)
+	if c := teamCountInCategory(got[2], AwardHighestScore, "b"); c != 1 {
+		t.Errorf("week 3 Bravo HighestScore = %d, want 1", c)
 	}
-	if c := findCount(got[2], "b"); c != 2 {
-		t.Errorf("week 3 Bravo count = %d, want 2", c)
-	}
-	// Tiebreak: alpha first by ID asc.
-	if got[2].Teams[0].TeamID != "a" {
-		t.Errorf("week 3 first team = %s, want a (lex tiebreak)", got[2].Teams[0].TeamID)
+	// Within HighestScore category at week 3: a (count 2) before b (count 1).
+	cat := findCategory(got[2], AwardHighestScore)
+	if cat.Teams[0].TeamID != "a" {
+		t.Errorf("week 3 HighestScore first team = %s, want a (count desc)", cat.Teams[0].TeamID)
 	}
 }
 
@@ -382,9 +399,9 @@ func TestAggregateSeasonAwards_NilRecapInSlice(t *testing.T) {
 	if got[1] != nil {
 		t.Errorf("nil recap should produce nil snapshot, got %+v", got[1])
 	}
-	// Counts continue accumulating past the nil — Alpha now has 2.
-	if c := findCount(got[2], "a"); c != 2 {
-		t.Errorf("after nil-skip Alpha count = %d, want 2", c)
+	// Counts continue accumulating past the nil — Alpha now has 2 HighestScore.
+	if c := teamCountInCategory(got[2], AwardHighestScore, "a"); c != 2 {
+		t.Errorf("after nil-skip Alpha HighestScore = %d, want 2", c)
 	}
 }
 

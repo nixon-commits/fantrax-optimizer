@@ -25,6 +25,36 @@ var funcMap = template.FuncMap{
 	"matchupWinnerPts":  matchupWinnerPts,
 	"matchupLoserPts":   matchupLoserPts,
 	"matchupSideClass":  matchupSideClass,
+	"awardEmoji":        awardEmoji,
+}
+
+// awardEmoji returns the visual icon shown next to a weekly award category in
+// both the per-week awards section and the season-to-date leaderboard. Empty
+// string for unknown labels (template renders nothing).
+func awardEmoji(name string) string {
+	switch name {
+	case AwardMostEfficient:
+		return "★"
+	case AwardLeastEfficient:
+		return "×"
+	case AwardHighestScore:
+		return "👑"
+	case AwardLowestScore:
+		return "💩"
+	case AwardBiggestBlowout:
+		return "⚡"
+	case AwardNarrowVictory:
+		return "🎯"
+	case AwardHighestPtsLoss:
+		return "😭"
+	case AwardLowestPtsWin:
+		return "🍀"
+	case AwardBestStart:
+		return "🔥"
+	case AwardWorstStart:
+		return "💣"
+	}
+	return ""
 }
 
 // Render writes the recap HTML to w. No cross-week navigation or season

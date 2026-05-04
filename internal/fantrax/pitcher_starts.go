@@ -5,13 +5,15 @@ import (
 	"time"
 )
 
-// DatedPitcherStart records a single SP game start with its date and FPts.
-// Unlike PitcherStart (which gscheck uses for deduction), this is a complete
-// list of all active-slot starts for use in award/highlight reports.
+// DatedPitcherStart records a single SP game start with its date, FPts, and
+// the pitcher's MLB team. Unlike PitcherStart (which gscheck uses for
+// deduction), this is a complete list of all active-slot starts for use in
+// award/highlight reports.
 type DatedPitcherStart struct {
 	PitcherName string    `json:"pitcher_name"`
 	Date        time.Time `json:"date"`
 	FPts        float64   `json:"fpts"`
+	MLBTeam     string    `json:"mlb_team"`
 }
 
 // GetTeamPitcherStarts returns every active-slot SP start a team made within
@@ -75,6 +77,7 @@ func (c *Client) GetTeamPitcherStarts(teamID string, start, end, seasonStart tim
 						PitcherName: snap.name,
 						Date:        d,
 						FPts:        fptsDelta,
+						MLBTeam:     snap.mlbTeam,
 					})
 				}
 			}

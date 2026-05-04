@@ -249,26 +249,63 @@ func pickStart(starts []PitcherStartLine, less func(a, b *PitcherStartLine) bool
 	return &out
 }
 
+// Award name labels rendered in the season leaderboard. Match the per-week
+// display labels used in template.html for consistency.
+const (
+	AwardMostEfficient  = "Most Efficient"
+	AwardLeastEfficient = "Least Efficient"
+	AwardHighestScore   = "Highest Score"
+	AwardLowestScore    = "Lowest Score"
+	AwardBiggestBlowout = "Biggest Blowout"
+	AwardNarrowVictory  = "Narrow Victory"
+	AwardHighestPtsLoss = "Highest Pts in Loss"
+	AwardLowestPtsWin   = "Lowest Pts in Win"
+	AwardBestStart      = "Best Start"
+	AwardWorstStart     = "Worst Start"
+)
+
+// SeasonShellingsLimit caps how many worst pitcher starts of the season are
+// surfaced in the leaderboard.
+const SeasonShellingsLimit = 5
+
+// awardOrder controls the rendering order of categories in the season
+// leaderboard. Mirrors the per-week awards section in template.html.
+var awardOrder = []string{
+	AwardMostEfficient,
+	AwardLeastEfficient,
+	AwardHighestScore,
+	AwardLowestScore,
+	AwardBiggestBlowout,
+	AwardNarrowVictory,
+	AwardHighestPtsLoss,
+	AwardLowestPtsWin,
+	AwardBestStart,
+	AwardWorstStart,
+}
+
 // AggregateSeasonAwards walks recaps in order and returns one cumulative
-// *SeasonAwards per recap, where snapshot i covers awards earned in weeks 0..i
-// inclusive. Each per-team award (single-team, matchup, matchup-side, and
-// pitcher-start) adds 1 to its team's tally. TopBatters / TopPitchers are
-// intentionally excluded — those are individual-player highlights and
-// counting them would inflate teams that simply roster many high-scorers.
+// *SeasonAwards per recap, where snapshot i covers awards earned in weeks
+// 0..i inclusive. The output is grouped by award category with each category
+// listing every team that has earned that award at least once and how many
+// times. TopBatters / TopPitchers are excluded. Each snapshot also carries
+// a Shellings list — the season's worst per-week pitcher starts, capped at
+// SeasonShellingsLimit, sorted by FPts ascending.
 //
-// Pitcher-start awards arrive with an OwnerTeam *name* rather than ID, so the
-// aggregator builds a per-recap name→ID map from Recap.Teams to attribute
-// them. Names that don't resolve are silently skipped (defensive — a typo or
-// stale team rename shouldn't crash the build).
+// Pitcher-start awards arrive with an OwnerTeam *name* rather than ID, so
+// the aggregator builds a per-recap name→ID map from Recap.Teams to
+// attribute them. Names that don't resolve are silently skipped.
 //
-// Output Teams slice is sorted by Count descending, then TeamID ascending for
-// deterministic output. Every team that appears in any recap's Teams list is
-// included in every snapshot, even with Count=0, so the leaderboard table
-// always lists the full league.
+// Within each category, teams are sorted by Count descending then TeamID
+// ascending. Categories with zero earners (e.g., no SP starts have happened
+// yet) are omitted from the snapshot.
 func AggregateSeasonAwards(recaps []*Recap) []*SeasonAwards {
 	out := make([]*SeasonAwards, 0, len(recaps))
-	counts := map[string]int{}
+	// counts[awardName][teamID] = total earned through current week.
+	counts := map[string]map[string]int{}
 	names := map[string]string{}
+	// allShellings is every recap's WorstSingleStart so far (with WeekNumber
+	// stamped on). Re-sorted on each snapshot.
+	var allShellings []PitcherStartLine
 
 	for _, r := range recaps {
 		if r == nil {
@@ -281,71 +318,105 @@ func AggregateSeasonAwards(recaps []*Recap) []*SeasonAwards {
 		for _, t := range r.Teams {
 			names[t.TeamID] = t.TeamName
 			nameToID[t.TeamName] = t.TeamID
-			if _, ok := counts[t.TeamID]; !ok {
-				counts[t.TeamID] = 0 // ensure team appears in snapshot even at zero
-			}
 		}
 
-		add := func(id string) {
+		add := func(label, id string) {
 			if id == "" {
 				return
 			}
-			counts[id]++
+			if counts[label] == nil {
+				counts[label] = map[string]int{}
+			}
+			counts[label][id]++
 		}
 		a := r.Awards
 		if a.MostEfficient != nil {
-			add(a.MostEfficient.TeamID)
+			add(AwardMostEfficient, a.MostEfficient.TeamID)
 		}
 		if a.LeastEfficient != nil {
-			add(a.LeastEfficient.TeamID)
+			add(AwardLeastEfficient, a.LeastEfficient.TeamID)
 		}
 		if a.HighestScore != nil {
-			add(a.HighestScore.TeamID)
+			add(AwardHighestScore, a.HighestScore.TeamID)
 		}
 		if a.LowestScore != nil {
-			add(a.LowestScore.TeamID)
+			add(AwardLowestScore, a.LowestScore.TeamID)
 		}
 		if a.BiggestBlowout != nil {
-			add(a.BiggestBlowout.WinnerID)
+			add(AwardBiggestBlowout, a.BiggestBlowout.WinnerID)
 		}
 		if a.NarrowVictory != nil {
-			add(a.NarrowVictory.WinnerID)
+			add(AwardNarrowVictory, a.NarrowVictory.WinnerID)
 		}
 		if a.HighestPtsInLoss != nil {
-			add(a.HighestPtsInLoss.TeamID)
+			add(AwardHighestPtsLoss, a.HighestPtsInLoss.TeamID)
 		}
 		if a.LowestPtsInWin != nil {
-			add(a.LowestPtsInWin.TeamID)
+			add(AwardLowestPtsWin, a.LowestPtsInWin.TeamID)
 		}
 		if a.BestSingleStart != nil {
 			if id, ok := nameToID[a.BestSingleStart.OwnerTeam]; ok {
-				add(id)
+				add(AwardBestStart, id)
 			}
 		}
 		if a.WorstSingleStart != nil {
 			if id, ok := nameToID[a.WorstSingleStart.OwnerTeam]; ok {
-				add(id)
+				add(AwardWorstStart, id)
 			}
+			s := *a.WorstSingleStart
+			s.WeekNumber = r.WeekNumber
+			allShellings = append(allShellings, s)
 		}
 
-		// Snapshot.
-		teams := make([]SeasonAwardLine, 0, len(counts))
-		for id, c := range counts {
-			teams = append(teams, SeasonAwardLine{
-				TeamID:   id,
-				TeamName: names[id],
-				Count:    c,
+		// Build snapshot in fixed display order, skipping awards no team has
+		// earned yet.
+		categories := make([]SeasonAwardCategory, 0, len(awardOrder))
+		for _, label := range awardOrder {
+			tc := counts[label]
+			if len(tc) == 0 {
+				continue
+			}
+			teams := make([]SeasonAwardTeam, 0, len(tc))
+			for id, c := range tc {
+				teams = append(teams, SeasonAwardTeam{
+					TeamID:   id,
+					TeamName: names[id],
+					Count:    c,
+				})
+			}
+			sort.Slice(teams, func(i, j int) bool {
+				if teams[i].Count != teams[j].Count {
+					return teams[i].Count > teams[j].Count
+				}
+				return teams[i].TeamID < teams[j].TeamID
+			})
+			categories = append(categories, SeasonAwardCategory{
+				AwardName: label,
+				Teams:     teams,
 			})
 		}
-		sort.Slice(teams, func(i, j int) bool {
-			if teams[i].Count != teams[j].Count {
-				return teams[i].Count > teams[j].Count
+		// Build the shellings list — sort all season's worst-per-week starts
+		// by FPts ascending, take the top N. Tiebreak on (Name, Date) for
+		// stable ordering.
+		shellings := make([]PitcherStartLine, len(allShellings))
+		copy(shellings, allShellings)
+		sort.SliceStable(shellings, func(i, j int) bool {
+			if shellings[i].FPts != shellings[j].FPts {
+				return shellings[i].FPts < shellings[j].FPts
 			}
-			return teams[i].TeamID < teams[j].TeamID
+			if shellings[i].Name != shellings[j].Name {
+				return shellings[i].Name < shellings[j].Name
+			}
+			return shellings[i].Date.Before(shellings[j].Date)
 		})
+		if len(shellings) > SeasonShellingsLimit {
+			shellings = shellings[:SeasonShellingsLimit]
+		}
+
 		out = append(out, &SeasonAwards{
 			ThroughWeek: r.WeekNumber,
-			Teams:       teams,
+			Categories:  categories,
+			Shellings:   shellings,
 		})
 	}
 	return out

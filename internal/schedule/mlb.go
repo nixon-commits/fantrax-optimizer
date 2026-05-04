@@ -86,6 +86,31 @@ func (c *Client) TeamsPlayingOn(date time.Time) (map[string]bool, error) {
 	return playing, nil
 }
 
+// OpponentsOn returns a map of MLB team abbreviation → opponent abbreviation
+// for every game on the given date. A team that plays a doubleheader will
+// only have its last opponent in the map (good enough for award-style "facing
+// X" labels; we don't model doubleheaders elsewhere either).
+func (c *Client) OpponentsOn(date time.Time) (map[string]string, error) {
+	payload, err := c.fetchSchedule(date)
+	if err != nil {
+		return nil, err
+	}
+	opp := make(map[string]string)
+	for _, d := range payload.Dates {
+		for _, g := range d.Games {
+			away := projections.NormalizeTeam(g.Teams.Away.Team.Abbreviation)
+			home := projections.NormalizeTeam(g.Teams.Home.Team.Abbreviation)
+			if away != "" {
+				opp[away] = home
+			}
+			if home != "" {
+				opp[home] = away
+			}
+		}
+	}
+	return opp, nil
+}
+
 // LockedTeams returns the set of teams whose game is currently in progress or final.
 // Players on these teams cannot be moved in Fantrax for that scoring period.
 func (c *Client) LockedTeams(date time.Time) (map[string]bool, error) {
