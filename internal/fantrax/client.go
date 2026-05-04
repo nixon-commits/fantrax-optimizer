@@ -476,8 +476,13 @@ func (c *Client) GetScoringWeights() (ScoringWeights, error) {
 
 // ApplyLineup sends the updated lineup to Fantrax for the given scoring period.
 // Pass 0 to auto-detect the current period.
+//
+// On a Fantrax "already locked in this period" rejection, the locked players
+// are removed from the payload and the request is retried once. Per-player
+// lock state diverges from team-game lock state (mid-day announced lineups,
+// doubleheaders, timing edges) so the optimizer can stage moves Fantrax
+// considers locked even when our pre-flight LockedTeams check passed.
 func (c *Client) ApplyLineup(period int, active []PlayerSlot, reserve []string) error {
-	// Auto-detect period if 0.
 	if period == 0 {
 		p, err := c.auth.GetCurrentPeriod()
 		if err != nil {
@@ -486,66 +491,16 @@ func (c *Client) ApplyLineup(period int, active []PlayerSlot, reserve []string) 
 		period = p
 	}
 
-	// Fetch roster and build fieldMap for this period.
 	rawRoster, err := c.auth.GetTeamRosterInfoRaw(fmt.Sprintf("%d", period), c.teamID)
 	if err != nil {
 		return fmt.Errorf("get roster for period %d: %w", period, err)
 	}
-	fieldMap := auth_client.BuildFieldMapFromRoster(rawRoster)
 
-	// Apply moves to fieldMap.
-	for _, ps := range active {
-		pos, ok := fieldMap[ps.PlayerID]
-		if !ok {
-			return fmt.Errorf("player %s not found in roster", ps.PlayerID)
-		}
-		pos.StID = "1" // Active
-		pos.PosID = ps.PosID
-		fieldMap[ps.PlayerID] = pos
-	}
-	for _, id := range reserve {
-		pos, ok := fieldMap[id]
-		if !ok {
-			return fmt.Errorf("player %s not found in roster", id)
-		}
-		pos.StID = "2" // Reserve
-		pos.PosID = ""
-		fieldMap[id] = pos
+	executor := func(fieldMap map[string]auth_client.RosterPosition) (*models.RosterChangeResponse, error) {
+		return c.auth.ConfirmOrExecuteTeamRosterChangesRaw(period, c.teamID, fieldMap, false, true, false)
 	}
 
-	// First call — may return a confirmation prompt for future periods.
-	rawResp, err := c.auth.ConfirmOrExecuteTeamRosterChangesRaw(period, c.teamID, fieldMap, false, true, false)
-	if err != nil {
-		return fmt.Errorf("apply roster changes: %w", err)
-	}
-
-	if len(rawResp.Responses) > 0 {
-		data := rawResp.Responses[0].Data
-		// Fantrax returns a confirmation prompt for future periods — retry to confirm.
-		if data.FantasyResponse.MainMsg != "" && strings.Contains(data.FantasyResponse.MainMsg, "Please confirm") {
-			rawResp, err = c.auth.ConfirmOrExecuteTeamRosterChangesRaw(period, c.teamID, fieldMap, false, true, false)
-			if err != nil {
-				return fmt.Errorf("confirm roster changes: %w", err)
-			}
-			if len(rawResp.Responses) > 0 {
-				data = rawResp.Responses[0].Data
-				if data.FantasyResponse.MainMsg != "" && !strings.Contains(data.FantasyResponse.MainMsg, "Please confirm") {
-					return fmt.Errorf("roster change rejected after confirm: %s", data.FantasyResponse.MainMsg)
-				}
-			}
-			return nil
-		}
-		// Real error.
-		if data.FantasyResponse.MainMsg != "" {
-			msg := data.FantasyResponse.MainMsg
-			if strings.Contains(msg, "no changes detected") ||
-				strings.Contains(strings.ToLower(msg), "same lineup") {
-				return nil
-			}
-			return fmt.Errorf("roster change rejected: %s", msg)
-		}
-	}
-	return nil
+	return applyLineupWithLockedPlayerRetry(executor, rawRoster, active, reserve)
 }
 
 // PlayerSlot pairs a player ID with the active slot's position ID.
