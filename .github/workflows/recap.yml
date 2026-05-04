@@ -6,12 +6,20 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # commit the rendered HTML back to main
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  weekly-recap:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - uses: actions/checkout@v5
@@ -32,22 +40,8 @@ jobs:
             recap-
             projections-
 
-      - name: Resolve target file path
-        id: path
-        run: |
-          # Write JSON to a file rather than capturing stdout — the upstream
-          # auth_client prints "Navigating to Fantrax login page..." to stdout
-          # during browser-driven cookie auth, which would corrupt the JSON.
-          go run . recap --json --out recap-meta.json
-          season=$(jq -r .season recap-meta.json)
-          week=$(jq -r .week_number recap-meta.json)
-          padded=$(printf "%02d" "$week")
-          file="docs/recaps/${season}/week-${padded}.html"
-          echo "file=$file" >> "$GITHUB_OUTPUT"
-          echo "season=$season" >> "$GITHUB_OUTPUT"
-          echo "week=$week" >> "$GITHUB_OUTPUT"
-          echo "Target: $file"
-          rm -f recap-meta.json
+      - name: Build recap site
+        run: go run . recap-site --out dist
         env:
           FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
           FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
@@ -56,44 +50,24 @@ jobs:
           FANTRAX_IL_SLOTS: ${{ secrets.FANTRAX_IL_SLOTS }}
           FANTRAX_MINORS_SLOTS: ${{ secrets.FANTRAX_MINORS_SLOTS }}
 
-      - name: Render recap HTML
-        run: go run . recap --out "${{ steps.path.outputs.file }}"
-        env:
-          FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
-          FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
-          FANTRAX_LEAGUE_ID: ${{ secrets.FANTRAX_LEAGUE_ID }}
-          FANTRAX_TEAM_ID: ${{ secrets.FANTRAX_TEAM_ID }}
-          FANTRAX_IL_SLOTS: ${{ secrets.FANTRAX_IL_SLOTS }}
-          FANTRAX_MINORS_SLOTS: ${{ secrets.FANTRAX_MINORS_SLOTS }}
+      - uses: actions/configure-pages@v5
 
-      - name: Commit and push if changed
-        id: commit
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/recaps
-          if git diff --staged --quiet; then
-            echo "No changes — recap already up to date."
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          git commit -m "Recap: ${{ steps.path.outputs.season }} week ${{ steps.path.outputs.week }}"
-          git push
-          echo "changed=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
 
       - name: Send Pushover notification
-        if: steps.commit.outputs.changed == 'true'
+        if: success()
         run: |
-          repo="${GITHUB_REPOSITORY}"
-          owner=$(echo "$repo" | cut -d/ -f1)
-          name=$(echo "$repo" | cut -d/ -f2)
-          url="https://${owner}.github.io/${name}/recaps/${{ steps.path.outputs.season }}/week-$(printf '%02d' ${{ steps.path.outputs.week }}).html"
           curl -s -f \
             --form-string "token=$PUSHOVER_APP_TOKEN" \
             --form-string "user=$PUSHOVER_USER_KEY" \
-            --form-string "title=RosterBot: Week ${{ steps.path.outputs.week }} Recap" \
-            --form-string "message=Weekly recap is up — tap to view." \
-            --form-string "url=$url" \
+            --form-string "title=RosterBot: Recap updated" \
+            --form-string "message=Latest week recap deployed — tap to view." \
+            --form-string "url=${{ steps.deployment.outputs.page_url }}" \
             --form-string "url_title=Open Recap" \
             --form-string "priority=0" \
             https://api.pushover.net/1/messages.json

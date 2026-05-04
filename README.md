@@ -88,6 +88,9 @@ rosterbot recap --out /tmp/recap.html
 # Recap a specific window
 rosterbot recap --dates 2026-04-20:2026-04-26 --out /tmp/recap.html
 
+# Build a multi-week static site (one HTML per completed week + index.html)
+rosterbot recap-site --out dist
+
 # Print league scoring weights
 rosterbot scoring
 ```
@@ -146,11 +149,11 @@ GitHub Actions workflows run on daily schedules:
 | `gs-check.yml` | 8am ET daily | `gs-check` |
 | `transactions.yml` | 10am ET daily | `transactions` |
 | `prospects.yml` | 7am ET daily | `prospects` |
-| `recap.yml` | 11am ET daily | `recap` (publishes to GitHub Pages, only commits when a new matchup week ends) |
+| `recap.yml` | 11am ET daily | `recap-site` (builds every completed week + index, deploys to GitHub Pages) |
 
 All workflows support `workflow_dispatch` for manual triggering. Required repository secrets: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`.
 
-The recap workflow needs `permissions: contents: write` (already in the file) to push the rendered HTML back to `main`. To enable Pages: repo Settings → Pages → Source = "Deploy from a branch" → branch `main`, folder `/docs`. Recaps then live at `https://<owner>.github.io/<repo>/recaps/<season>/week-NN.html`.
+The recap workflow uses `actions/deploy-pages` and needs `permissions: pages: write, id-token: write` (already in the file). No HTML is committed to the repo. To enable Pages: repo Settings → Pages → Source = **"GitHub Actions"**. The site root (`https://<owner>.github.io/<repo>/`) serves the latest matchup week, and the dropdown in the header switches between past weeks (`week-01.html`, `week-02.html`, …).
 
 ## Development
 
