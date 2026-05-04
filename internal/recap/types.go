@@ -44,8 +44,8 @@ type MatchupResult struct {
 	IsTie        bool    `json:"is_tie,omitempty"`
 }
 
-// PlayerLine is one player-day scoring entry, used for "Players of the Week"
-// and "Benchwarmers of the Week" awards.
+// PlayerLine is one player-day scoring entry, used for the top batter / top
+// pitcher leaderboards and the "Benchwarmers of the Week" award.
 type PlayerLine struct {
 	PlayerID  string    `json:"player_id"`
 	Name      string    `json:"name"`
@@ -54,6 +54,7 @@ type PlayerLine struct {
 	FPts      float64   `json:"fpts"`
 	Date      time.Time `json:"date"`
 	OwnerTeam string    `json:"owner_team"`
+	IsPitcher bool      `json:"is_pitcher,omitempty"`
 }
 
 // PitcherStartLine is one SP game-start record for the week, used for
@@ -88,6 +89,7 @@ type Awards struct {
 	LowestPtsInWin     *MatchupTeamSide  `json:"lowest_pts_in_win,omitempty"`
 	BestSingleStart    *PitcherStartLine `json:"best_single_start,omitempty"`
 	WorstSingleStart   *PitcherStartLine `json:"worst_single_start,omitempty"`
-	PlayersOfWeek      []PlayerLine      `json:"players_of_week,omitempty"`
+	TopBatters         []PlayerLine      `json:"top_batters,omitempty"`
+	TopPitchers        []PlayerLine      `json:"top_pitchers,omitempty"`
 	BenchwarmersOfWeek []PlayerLine      `json:"benchwarmers_of_week,omitempty"`
 }

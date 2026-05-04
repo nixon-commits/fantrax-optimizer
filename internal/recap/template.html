@@ -58,6 +58,15 @@
   .matchup .team.lose .pts { color: var(--text-dim); }
   .matchup .vs { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
   .pitcher-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .leaders { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .leaders .col { min-width: 0; }
+  .leaders h3 { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dim); margin: 0 0 8px; padding-left: 4px; font-weight: 600; }
+  .leader-row { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+  .leader-row .rank { color: var(--text-dim); font-weight: 700; min-width: 18px; text-align: center; font-size: 12px; }
+  .leader-row .body { flex: 1; min-width: 0; }
+  .leader-row .name { font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .leader-row .meta { color: var(--text-dim); font-size: 11px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .leader-row .stat { font-size: 13px; font-weight: 700; color: var(--accent); }
   .pitcher-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
   .pitcher-card .label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; }
   .pitcher-card .name { font-weight: 600; font-size: 15px; }
@@ -67,7 +76,7 @@
   .pitcher-card .sub { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
   footer { color: var(--text-dim); font-size: 11px; text-align: center; margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--border); }
   @media (max-width: 480px) {
-    .award-grid, .pitcher-grid { grid-template-columns: 1fr; }
+    .award-grid, .pitcher-grid, .leaders { grid-template-columns: 1fr; }
   }
 </style>
 </head>
@@ -169,19 +178,37 @@
 </section>
 {{- end}}
 
-{{- if .PlayersOfWeek}}
+{{- if or .TopBatters .TopPitchers}}
 <section>
-  <h2>Players of the Week</h2>
-  {{- range $i, $p := .PlayersOfWeek}}
-  <div class="row">
-    <div class="rank">{{add $i 1}}</div>
-    <div class="body">
-      <div class="name">{{$p.Name}}</div>
-      <div class="meta">{{$p.OwnerTeam}}{{if $p.MLBTeam}} · {{$p.MLBTeam}}{{end}} · {{fmtDate $p.Date}}</div>
+  <h2>Top Performances</h2>
+  <div class="leaders">
+    <div class="col">
+      <h3>Top Batters</h3>
+      {{- range $i, $p := .TopBatters}}
+      <div class="leader-row">
+        <div class="rank">{{add $i 1}}</div>
+        <div class="body">
+          <div class="name">{{$p.Name}}</div>
+          <div class="meta">{{$p.OwnerTeam}}{{if $p.MLBTeam}} · {{$p.MLBTeam}}{{end}} · {{fmtDate $p.Date}}</div>
+        </div>
+        <div class="stat">{{pts $p.FPts}}</div>
+      </div>
+      {{- end}}
     </div>
-    <div class="stat">{{pts $p.FPts}}</div>
+    <div class="col">
+      <h3>Top Pitchers</h3>
+      {{- range $i, $p := .TopPitchers}}
+      <div class="leader-row">
+        <div class="rank">{{add $i 1}}</div>
+        <div class="body">
+          <div class="name">{{$p.Name}}</div>
+          <div class="meta">{{$p.OwnerTeam}}{{if $p.MLBTeam}} · {{$p.MLBTeam}}{{end}} · {{fmtDate $p.Date}}</div>
+        </div>
+        <div class="stat">{{pts $p.FPts}}</div>
+      </div>
+      {{- end}}
+    </div>
   </div>
-  {{- end}}
 </section>
 {{- end}}
 

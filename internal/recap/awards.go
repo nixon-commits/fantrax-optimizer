@@ -132,16 +132,30 @@ func loserSide(m MatchupResult) MatchupTeamSide {
 	return MatchupTeamSide{TeamID: m.AwayTeamID, TeamName: m.AwayTeamName, Pts: m.AwayPts, OppName: m.HomeTeamName, OppPts: m.HomePts}
 }
 
-// PlayersOfWeek returns the top n active player-day scoring lines, sorted by
-// FPts descending. Stable tiebreaker on (Name, OwnerTeam, Date) so duplicate
-// scores produce deterministic ordering.
-func PlayersOfWeek(active []PlayerLine, n int) []PlayerLine {
-	return topPlayers(active, n)
+// TopBatters returns the top n active hitter player-day scoring lines, sorted
+// by FPts descending. Stable tiebreaker on (Name, OwnerTeam, Date).
+func TopBatters(active []PlayerLine, n int) []PlayerLine {
+	return topPlayers(filterByPitcher(active, false), n)
+}
+
+// TopPitchers returns the top n active pitcher player-day scoring lines.
+func TopPitchers(active []PlayerLine, n int) []PlayerLine {
+	return topPlayers(filterByPitcher(active, true), n)
 }
 
 // BenchwarmersOfWeek returns the top n benched player-day scoring lines.
 func BenchwarmersOfWeek(bench []PlayerLine, n int) []PlayerLine {
 	return topPlayers(bench, n)
+}
+
+func filterByPitcher(lines []PlayerLine, pitcher bool) []PlayerLine {
+	out := make([]PlayerLine, 0, len(lines))
+	for _, l := range lines {
+		if l.IsPitcher == pitcher {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 func topPlayers(lines []PlayerLine, n int) []PlayerLine {

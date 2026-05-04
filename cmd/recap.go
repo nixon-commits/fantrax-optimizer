@@ -31,7 +31,7 @@ func init() {
 	recapCmd.Flags().IntVar(&recapWeek, "week", 0, "matchup week number, 1-indexed (default: most recently completed week)")
 	recapCmd.Flags().StringVar(&recapOut, "out", "", "write HTML to this path (default: stdout)")
 	recapCmd.Flags().BoolVar(&recapJSON, "json", false, "emit machine-readable JSON instead of HTML")
-	recapCmd.Flags().IntVar(&recapTopN, "top", 4, "number of players in 'Players of the Week' / 'Benchwarmers' lists")
+	recapCmd.Flags().IntVar(&recapTopN, "top", 10, "number of players per leaderboard (Top Batters / Top Pitchers / Benchwarmers)")
 	rootCmd.AddCommand(recapCmd)
 }
 

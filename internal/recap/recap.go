@@ -33,7 +33,7 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 			opts.WeekEnd.Format("2006-01-02"), opts.WeekStart.Format("2006-01-02"))
 	}
 	if opts.TopPlayers <= 0 {
-		opts.TopPlayers = 4
+		opts.TopPlayers = 10
 	}
 	if opts.Concurrency <= 0 {
 		opts.Concurrency = 4
@@ -138,7 +138,8 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 		LowestPtsInWin:     LowestPtsInWin(matchups),
 		BestSingleStart:    BestSingleStart(allStarts),
 		WorstSingleStart:   WorstSingleStart(allStarts),
-		PlayersOfWeek:      PlayersOfWeek(allActive, opts.TopPlayers),
+		TopBatters:         TopBatters(allActive, opts.TopPlayers),
+		TopPitchers:        TopPitchers(allActive, opts.TopPlayers),
 		BenchwarmersOfWeek: BenchwarmersOfWeek(allBench, opts.TopPlayers),
 	}
 
@@ -261,6 +262,7 @@ func extractPlayerLines(days []fantrax.DayRoster, ownerTeam string) (active, ben
 				FPts:      p.FPts,
 				Date:      d.Date,
 				OwnerTeam: ownerTeam,
+				IsPitcher: p.IsPitcher,
 			}
 			if p.Active {
 				active = append(active, line)

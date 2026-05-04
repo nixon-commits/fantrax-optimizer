@@ -110,30 +110,54 @@ func TestHighestPtsInLossAndLowestPtsInWin(t *testing.T) {
 	}
 }
 
-func TestPlayersAndBenchwarmersOfWeek(t *testing.T) {
+func TestTopBattersAndPitchers(t *testing.T) {
 	day1 := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
 	day2 := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)
 
 	active := []PlayerLine{
-		{PlayerID: "p1", Name: "Alpha", FPts: 30, Date: day1, OwnerTeam: "A"},
-		{PlayerID: "p2", Name: "Bravo", FPts: 25, Date: day1, OwnerTeam: "A"},
-		{PlayerID: "p3", Name: "Charlie", FPts: 40, Date: day2, OwnerTeam: "B"},
-		{PlayerID: "p4", Name: "Delta", FPts: 5, Date: day1, OwnerTeam: "C"},
+		{PlayerID: "h1", Name: "Alpha", FPts: 30, Date: day1, OwnerTeam: "A"},
+		{PlayerID: "h2", Name: "Bravo", FPts: 25, Date: day1, OwnerTeam: "A"},
+		{PlayerID: "h3", Name: "Charlie", FPts: 40, Date: day2, OwnerTeam: "B"},
+		{PlayerID: "h4", Name: "Delta", FPts: 5, Date: day1, OwnerTeam: "C"},
+		{PlayerID: "p1", Name: "Pacer", FPts: 35, Date: day1, OwnerTeam: "A", IsPitcher: true},
+		{PlayerID: "p2", Name: "Quark", FPts: 12, Date: day2, OwnerTeam: "B", IsPitcher: true},
 	}
+
+	bat := TopBatters(active, 3)
+	if len(bat) != 3 {
+		t.Fatalf("TopBatters: want 3, got %d", len(bat))
+	}
+	if bat[0].Name != "Charlie" || bat[1].Name != "Alpha" || bat[2].Name != "Bravo" {
+		t.Fatalf("TopBatters order wrong: %+v", bat)
+	}
+	for _, b := range bat {
+		if b.IsPitcher {
+			t.Errorf("TopBatters returned a pitcher: %+v", b)
+		}
+	}
+
+	pit := TopPitchers(active, 5)
+	if len(pit) != 2 {
+		t.Fatalf("TopPitchers: want 2 (only 2 pitchers), got %d", len(pit))
+	}
+	if pit[0].Name != "Pacer" || pit[1].Name != "Quark" {
+		t.Fatalf("TopPitchers order wrong: %+v", pit)
+	}
+	for _, p := range pit {
+		if !p.IsPitcher {
+			t.Errorf("TopPitchers returned a non-pitcher: %+v", p)
+		}
+	}
+}
+
+func TestBenchwarmersOfWeek(t *testing.T) {
+	day1 := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	day2 := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)
 	bench := []PlayerLine{
 		{PlayerID: "p5", Name: "Echo", FPts: 22, Date: day1, OwnerTeam: "A"},
 		{PlayerID: "p6", Name: "Foxtrot", FPts: 35, Date: day2, OwnerTeam: "B"},
 		{PlayerID: "p7", Name: "Golf", FPts: 18, Date: day2, OwnerTeam: "C"},
 	}
-
-	top := PlayersOfWeek(active, 3)
-	if len(top) != 3 {
-		t.Fatalf("PlayersOfWeek: want 3, got %d", len(top))
-	}
-	if top[0].Name != "Charlie" || top[1].Name != "Alpha" || top[2].Name != "Bravo" {
-		t.Fatalf("PlayersOfWeek order wrong: %+v", top)
-	}
-
 	benchTop := BenchwarmersOfWeek(bench, 2)
 	if len(benchTop) != 2 {
 		t.Fatalf("BenchwarmersOfWeek: want 2, got %d", len(benchTop))
@@ -143,13 +167,16 @@ func TestPlayersAndBenchwarmersOfWeek(t *testing.T) {
 	}
 }
 
-func TestPlayersOfWeekHandlesShortInput(t *testing.T) {
+func TestTopPlayersHandlesShortInput(t *testing.T) {
 	short := []PlayerLine{{Name: "Solo", FPts: 10, OwnerTeam: "X"}}
-	if got := PlayersOfWeek(short, 5); len(got) != 1 || got[0].Name != "Solo" {
-		t.Fatalf("PlayersOfWeek short: %+v", got)
+	if got := TopBatters(short, 5); len(got) != 1 || got[0].Name != "Solo" {
+		t.Fatalf("TopBatters short: %+v", got)
 	}
-	if got := PlayersOfWeek(nil, 5); len(got) != 0 {
-		t.Errorf("PlayersOfWeek(nil): want empty, got %+v", got)
+	if got := TopBatters(nil, 5); len(got) != 0 {
+		t.Errorf("TopBatters(nil): want empty, got %+v", got)
+	}
+	if got := TopPitchers(nil, 5); len(got) != 0 {
+		t.Errorf("TopPitchers(nil): want empty, got %+v", got)
 	}
 }
 
