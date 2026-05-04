@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -9,6 +10,33 @@ import (
 	"github.com/nixon-commits/rosterbot/internal/projections"
 	"github.com/nixon-commits/rosterbot/internal/roster"
 )
+
+// zeroGainEps matches the optimizer's float-comparison epsilon. Combined
+// hitter+pitcher move sets whose net pts gain is within this tolerance are
+// dropped before staging — the optimizer can construct cosmetic swaps among
+// equally-valued bench players (e.g. two zero-projection players trading UT
+// slots), and Fantrax atomically rejects the whole payload if any one of
+// those players is per-player-locked, dropping any other valid moves with it.
+const zeroGainEps = 1e-9
+
+// combinedMovesDelta returns the net pts gain from a combined hitter+pitcher
+// move set. ptsMap maps player ID to effective pts (already discounted for
+// non-starting SPs by the caller).
+func combinedMovesDelta(activate []fantrax.PlayerSlot, bench []string, ptsMap map[string]float64) float64 {
+	var delta float64
+	for _, ps := range activate {
+		delta += ptsMap[ps.PlayerID]
+	}
+	for _, id := range bench {
+		delta -= ptsMap[id]
+	}
+	return delta
+}
+
+// isZeroGainDelta reports whether a combined-move delta is within zeroGainEps of zero.
+func isZeroGainDelta(delta float64) bool {
+	return math.Abs(delta) < zeroGainEps
+}
 
 // pitcherProjectedPts returns a pitcher's projected fantasy pts per game using
 // the blended source (if available) or the raw season projection. Returns 0

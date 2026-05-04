@@ -1158,13 +1158,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 				ptsMap[sp.Player.ID] = sp.ExpectedPts * 0.10
 			}
 		}
-		var delta float64
-		for _, ps := range allActivate {
-			delta += ptsMap[ps.PlayerID]
-		}
-		for _, id := range allBench {
-			delta -= ptsMap[id]
-		}
+		delta := combinedMovesDelta(allActivate, allBench, ptsMap)
 
 		fmt.Printf("\n  Changes (%+.2f pts) %s\n", delta, strings.Repeat("─", 35))
 		for _, ps := range allActivate {
@@ -1172,6 +1166,11 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		}
 		for _, id := range allBench {
 			fmt.Printf("    ↓ %-24s → BN    %+6.2f\n", playerName[id], -ptsMap[id])
+		}
+
+		if isZeroGainDelta(delta) {
+			fmt.Println("\n  Net gain ≈ 0 — skipping apply (cosmetic swap).")
+			continue
 		}
 
 		if cfg.DryRun {
@@ -1189,7 +1188,13 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		// --- Apply combined lineup (sequential — Fantrax API is not concurrent-safe) ---
 		fmt.Printf("\nApplying lineup for %s (period %d)...\n", dateKey, dr.period)
 		if err := ft.ApplyLineup(dr.period, allActivate, allBench); err != nil {
-			return fmt.Errorf("apply lineup: %w", err)
+			// Log and continue. Aborting here would drop any subsequent
+			// dates' work on multi-date runs and turn a partial success
+			// into a GHA-failed run with no daily summary.
+			fmt.Printf("  ⚠ apply lineup failed for %s: %v\n", dateKey, err)
+			sendOptimizeNotify(cfg.PushoverUserKey, cfg.PushoverAPIToken,
+				fmt.Sprintf("⚠ %s: apply failed — %v", dr.date.Format("Mon Jan 2"), err))
+			continue
 		}
 		fmt.Println("Lineup applied successfully.")
 
