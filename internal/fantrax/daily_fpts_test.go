@@ -81,7 +81,7 @@ func TestDiffYTD_DeltaExtraction(t *testing.T) {
 		"h1": {PlayerID: "h1", Name: "Judge", FPts: 32.5, GP: 6, StatusID: "1"},
 	}
 
-	got := diffYTD(cur, prev, 30.0, false)
+	got := diffYTD(cur, prev, nil, false)
 	if len(got) != 1 {
 		t.Fatalf("want 1 row, got %d", len(got))
 	}
@@ -96,21 +96,47 @@ func TestDiffYTD_DeltaExtraction(t *testing.T) {
 	}
 }
 
-func TestDiffYTD_FirstAppearanceCap(t *testing.T) {
-	// Player appears mid-period with big pre-period YTD; delta should cap.
+func TestDiffYTD_FirstAppearanceZeroed(t *testing.T) {
+	// Player appears mid-period with big pre-period YTD (e.g., waiver pickup).
+	// First-appearance delta is zeroed so pre-team production isn't credited as
+	// today's points.
 	cur := map[string]playerYTD{
 		"h1": {PlayerID: "h1", Name: "Pickup", FPts: 120.0, GP: 40, StatusID: "1"},
 	}
 
-	got := diffYTD(cur, map[string]playerYTD{}, 30.0, false)
+	got := diffYTD(cur, map[string]playerYTD{}, nil, false)
 	if len(got) != 1 {
 		t.Fatalf("want 1 row, got %d", len(got))
 	}
-	if got[0].FPts != 30.0 {
-		t.Errorf("first-appearance FPts should be capped at 30.0, got %v", got[0].FPts)
+	if got[0].FPts != 0 {
+		t.Errorf("first-appearance FPts should be 0, got %v", got[0].FPts)
+	}
+	if got[0].HadGame {
+		t.Errorf("HadGame should be false on day-of-acquisition (no signal)")
+	}
+}
+
+func TestDiffYTD_TwoWayPlayerCrossesKinds(t *testing.T) {
+	// Ohtani-style: yesterday Fantrax classified him as a hitter; today as a
+	// pitcher. The diff for the pitchers map should still find his prior YTD
+	// in the hitters map (prevOther) instead of treating him as a brand-new
+	// player and zeroing the delta.
+	prevHitters := map[string]playerYTD{
+		"ohtani": {PlayerID: "ohtani", Name: "Ohtani", FPts: 250.0, GP: 30, StatusID: "1"},
+	}
+	prevPitchers := map[string]playerYTD{}
+	curPitchers := map[string]playerYTD{
+		"ohtani": {PlayerID: "ohtani", Name: "Ohtani", FPts: 275.0, GP: 31, StatusID: "1"},
+	}
+	got := diffYTD(curPitchers, prevPitchers, prevHitters, true)
+	if len(got) != 1 {
+		t.Fatalf("want 1 row, got %d", len(got))
+	}
+	if got[0].FPts != 25.0 {
+		t.Errorf("cross-kind delta = %v, want 25.0 (275 - 250)", got[0].FPts)
 	}
 	if !got[0].HadGame {
-		t.Errorf("HadGame should be true (delta > 0)")
+		t.Errorf("HadGame should be true (real delta)")
 	}
 }
 
@@ -123,7 +149,7 @@ func TestDiffYTD_ZeroPointGameDetected(t *testing.T) {
 	cur := map[string]playerYTD{
 		"h1": {PlayerID: "h1", Name: "Slumper", FPts: 10.0, GP: 6, StatusID: "1"},
 	}
-	got := diffYTD(cur, prev, 30.0, false)
+	got := diffYTD(cur, prev, nil, false)
 	if got[0].FPts != 0 {
 		t.Errorf("FPts delta should be 0, got %v", got[0].FPts)
 	}
@@ -140,7 +166,7 @@ func TestDiffYTD_NoGameDay(t *testing.T) {
 	cur := map[string]playerYTD{
 		"h1": {PlayerID: "h1", Name: "OffDay", FPts: 10.0, GP: 5, StatusID: "1"},
 	}
-	got := diffYTD(cur, prev, 30.0, false)
+	got := diffYTD(cur, prev, nil, false)
 	if got[0].FPts != 0 {
 		t.Errorf("FPts delta should be 0, got %v", got[0].FPts)
 	}
@@ -157,7 +183,7 @@ func TestDiffYTD_ReserveToActiveMidPeriod(t *testing.T) {
 	cur := map[string]playerYTD{
 		"h1": {PlayerID: "h1", Name: "Mover", FPts: 22.0, GP: 6, StatusID: "1"},
 	}
-	got := diffYTD(cur, prev, 30.0, false)
+	got := diffYTD(cur, prev, nil, false)
 	if got[0].FPts != 7.0 {
 		t.Errorf("FPts delta = %v, want 7.0", got[0].FPts)
 	}
@@ -178,7 +204,7 @@ func TestDiffYTD_TwoWayPlayerCycling(t *testing.T) {
 	cur := map[string]playerYTD{
 		"o1": {PlayerID: "o1", Name: "Ohtani", FPts: 62.0, GP: 9, StatusID: "1"},
 	}
-	got := diffYTD(cur, prev, 30.0, false)
+	got := diffYTD(cur, prev, nil, false)
 	if got[0].FPts != 12.0 {
 		t.Errorf("two-way delta = %v, want 12.0 (not 62.0)", got[0].FPts)
 	}

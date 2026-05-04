@@ -9,3 +9,4 @@ rosterbot
 fangraphs-leaderboard-projections*.csv
 verify_periods
 ideas
+.playwright-mcp/

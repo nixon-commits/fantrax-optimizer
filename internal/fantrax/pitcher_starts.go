@@ -65,12 +65,11 @@ func (c *Client) GetTeamPitcherStarts(teamID string, start, end, seasonStart tim
 				if delta > 0 {
 					fptsDelta := snap.fpts - prevFPts[pid]
 					// On first appearance, the prevFPts baseline is zero so the
-					// delta would be the YTD total (e.g., a two-way player's
-					// hitter accumulation). Cap to DefaultMaxDailyFP, which is
-					// the same cap used by DailyFantasyPoints for the same
-					// reason (suppress pre-period YTD baselines).
-					if !existed && fptsDelta > DefaultMaxDailyFP {
-						fptsDelta = DefaultMaxDailyFP
+					// delta would be the YTD total. Zero it so we don't credit
+					// pre-window production as same-day points. Mirrors
+					// DailyFantasyPoints's first-appearance handling.
+					if !existed {
+						fptsDelta = 0
 					}
 					starts = append(starts, DatedPitcherStart{
 						PitcherName: snap.name,

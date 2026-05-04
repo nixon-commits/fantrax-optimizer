@@ -73,7 +73,7 @@ func runBacktest(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Fetching daily fantasy points for %s to %s...\n",
 		start.Format("2006-01-02"), end.Format("2006-01-02"))
-	days, err := ft.DailyFantasyPoints(cfg.TeamID, start, end, seasonStart, cacheDir, snapTTL, 0)
+	days, err := ft.DailyFantasyPoints(cfg.TeamID, start, end, seasonStart, cacheDir, snapTTL)
 	if err != nil {
 		return fmt.Errorf("daily fpts: %w", err)
 	}

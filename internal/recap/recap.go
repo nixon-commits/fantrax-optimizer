@@ -188,7 +188,7 @@ func collectTeam(
 	cacheDir string,
 	cacheTTL time.Duration,
 ) (*teamData, error) {
-	days, err := ft.DailyFantasyPoints(teamID, weekStart, weekEnd, seasonStart, cacheDir, cacheTTL, 0)
+	days, err := ft.DailyFantasyPoints(teamID, weekStart, weekEnd, seasonStart, cacheDir, cacheTTL)
 	if err != nil {
 		return nil, fmt.Errorf("daily fpts: %w", err)
 	}

@@ -37,10 +37,6 @@ type DayRoster struct {
 	Players []DayPlayerFP `json:"players"`
 }
 
-// DefaultMaxDailyFP caps the first-appearance delta for a player seen for the
-// first time in the period. Prevents a pre-period YTD baseline from leaking in.
-const DefaultMaxDailyFP = 30.0
-
 // playerYTD holds a single player's YTD values as extracted from one roster snapshot.
 type playerYTD struct {
 	PlayerID      string
@@ -63,19 +59,17 @@ type periodSnapshot struct {
 
 // DailyFantasyPoints walks every day in [start, end] (inclusive) and returns a
 // per-day snapshot of each rostered player's fantasy points. FPts are derived
-// by diffing consecutive YTD roster snapshots. First-appearance deltas are
-// capped at maxDailyFP (pass 0 to use DefaultMaxDailyFP).
+// by diffing consecutive YTD roster snapshots fetched in MLB stats mode
+// (StatsType=1) so that bench-day production is visible to hindsight callers.
+// Players seen for the first time in the window have their delta zeroed so the
+// cumulative pre-window YTD doesn't leak in as same-day production.
 func (c *Client) DailyFantasyPoints(
 	teamID string,
 	start, end time.Time,
 	seasonStart time.Time,
 	cacheDir string,
 	cacheTTL time.Duration,
-	maxDailyFP float64,
 ) ([]DayRoster, error) {
-	if maxDailyFP <= 0 {
-		maxDailyFP = DefaultMaxDailyFP
-	}
 	if end.Before(start) {
 		return nil, fmt.Errorf("end %s before start %s", end.Format("2006-01-02"), start.Format("2006-01-02"))
 	}
@@ -108,8 +102,8 @@ func (c *Client) DailyFantasyPoints(
 		}
 
 		var players []DayPlayerFP
-		players = append(players, diffYTD(snap.Hitters, prevHitters, maxDailyFP, false)...)
-		players = append(players, diffYTD(snap.Pitchers, prevPitchers, maxDailyFP, true)...)
+		players = append(players, diffYTD(snap.Hitters, prevHitters, prevPitchers, false)...)
+		players = append(players, diffYTD(snap.Pitchers, prevPitchers, prevHitters, true)...)
 
 		days = append(days, DayRoster{
 			Date:    d,
@@ -126,25 +120,24 @@ func (c *Client) DailyFantasyPoints(
 	return days, nil
 }
 
-// diffYTD computes per-day FPts from current vs. prior YTD. On a player's
-// first appearance in the range, delta is capped at maxDailyFP to suppress
-// pre-period baselines. HadGame is true when FPts != 0 or GP advanced.
-func diffYTD(cur, prev map[string]playerYTD, maxDailyFP float64, isPitcher bool) []DayPlayerFP {
+// diffYTD computes per-day FPts from current vs. prior YTD. The prevSame map is
+// the prior snapshot for the same kind (hitters or pitchers); prevOther is the
+// other kind, used so a two-way player who flips between maps day-to-day finds
+// their prior YTD instead of looking "new". For genuinely new players (waiver
+// pickup or roster addition), the first-appearance delta is zeroed — crediting
+// pre-team YTD as same-day production would inject phantom points.
+func diffYTD(cur, prevSame, prevOther map[string]playerYTD, isPitcher bool) []DayPlayerFP {
 	out := make([]DayPlayerFP, 0, len(cur))
 	for id, now := range cur {
-		pr, existed := prev[id]
+		pr, existed := prevSame[id]
+		if !existed {
+			pr, existed = prevOther[id]
+		}
 		deltaFP := now.FPts - pr.FPts
 		deltaGP := now.GP - pr.GP
 		if !existed {
-			if deltaFP > maxDailyFP {
-				deltaFP = maxDailyFP
-			}
-			if deltaFP < -maxDailyFP {
-				deltaFP = -maxDailyFP
-			}
-			if deltaGP > 1 {
-				deltaGP = 1
-			}
+			deltaFP = 0
+			deltaGP = 0
 		}
 		had := deltaFP != 0 || deltaGP > 0
 		out = append(out, DayPlayerFP{
@@ -170,7 +163,7 @@ func (c *Client) getPeriodSnapshotCached(
 	teamID string,
 	period int,
 ) (periodSnapshot, error) {
-	key := cache.Key("backtest-snapshot", teamID, strconv.Itoa(period))
+	key := cache.Key("backtest-snapshot-mlb", teamID, strconv.Itoa(period))
 	return snapCache.Get(key, func() (periodSnapshot, error) {
 		return c.fetchPeriodSnapshot(teamID, period)
 	})
@@ -186,7 +179,7 @@ func (c *Client) fetchPeriodSnapshot(teamID string, period int) (periodSnapshot,
 		TeamID:              teamID,
 		View:                "STATS",
 		ScoringCategoryType: "1",
-		StatsType:           "2",
+		StatsType:           "1",
 	}
 	fullRequest := map[string]interface{}{
 		"msgs": []auth_client.FantraxMessage{
