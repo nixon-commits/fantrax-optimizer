@@ -35,15 +35,19 @@ jobs:
       - name: Resolve target file path
         id: path
         run: |
-          json=$(go run . recap --json) || { echo "$json"; exit 1; }
-          season=$(echo "$json" | jq -r .season)
-          week=$(echo "$json" | jq -r .week_number)
+          # Write JSON to a file rather than capturing stdout — the upstream
+          # auth_client prints "Navigating to Fantrax login page..." to stdout
+          # during browser-driven cookie auth, which would corrupt the JSON.
+          go run . recap --json --out recap-meta.json
+          season=$(jq -r .season recap-meta.json)
+          week=$(jq -r .week_number recap-meta.json)
           padded=$(printf "%02d" "$week")
           file="docs/recaps/${season}/week-${padded}.html"
           echo "file=$file" >> "$GITHUB_OUTPUT"
           echo "season=$season" >> "$GITHUB_OUTPUT"
           echo "week=$week" >> "$GITHUB_OUTPUT"
           echo "Target: $file"
+          rm -f recap-meta.json
         env:
           FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
           FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
