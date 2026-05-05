@@ -290,6 +290,48 @@ func Dud(active []PlayerLine) *PlayerLine {
 	return best
 }
 
+// HeartAttack returns the matchup with the most lead changes in its WP
+// curve. Returns nil if no matchup has any lead changes (an "all-blowouts"
+// week — the recap will hide the Game of the Week section in that case).
+//
+// matchups is the per-week MatchupResult list; curves are matched by
+// canonical team-pair key, so order is independent.
+//
+// Tiebreak: smallest final margin → home TeamID asc.
+func HeartAttack(curves []MatchupWPCurve, matchups []MatchupResult) *MatchupResult {
+	if len(curves) == 0 || len(matchups) == 0 {
+		return nil
+	}
+	mByPair := make(map[string]MatchupResult, len(matchups))
+	for _, m := range matchups {
+		mByPair[canonPair(m.HomeTeamID, m.AwayTeamID)] = m
+	}
+
+	var best *MatchupResult
+	var bestChanges int
+	for _, c := range curves {
+		if c.LeadChanges == 0 {
+			continue
+		}
+		m, ok := mByPair[canonPair(c.HomeTeamID, c.AwayTeamID)]
+		if !ok {
+			continue
+		}
+		switch {
+		case best == nil:
+		case c.LeadChanges > bestChanges:
+		case c.LeadChanges == bestChanges && m.Margin < best.Margin:
+		case c.LeadChanges == bestChanges && m.Margin == best.Margin && m.HomeTeamID < best.HomeTeamID:
+		default:
+			continue
+		}
+		copyM := m
+		best = &copyM
+		bestChanges = c.LeadChanges
+	}
+	return best
+}
+
 // Award name labels rendered in the season leaderboard. Match the per-week
 // display labels used in template.html for consistency.
 const (

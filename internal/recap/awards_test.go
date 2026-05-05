@@ -457,6 +457,42 @@ func TestDudEmpty(t *testing.T) {
 	}
 }
 
+func TestHeartAttack(t *testing.T) {
+	low := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.4}, {HomeWP: 0.3}, {HomeWP: 0.2},
+		{HomeWP: 0.15}, {HomeWP: 0.1}, {HomeWP: 0.05}, {HomeWP: 0.0},
+	}
+	mid := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.6}, {HomeWP: 0.4}, {HomeWP: 0.6},
+		{HomeWP: 0.4}, {HomeWP: 0.6}, {HomeWP: 0.4}, {HomeWP: 0.55},
+	}
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", Points: low, LeadChanges: 1},
+		{HomeTeamID: "C", AwayTeamID: "D", Points: mid, LeadChanges: 6},
+		{HomeTeamID: "E", AwayTeamID: "F", Points: low, LeadChanges: 1},
+	}
+	matchups := []MatchupResult{
+		mr("A", "B", 100, 200), // blowout
+		mr("C", "D", 102, 100), // narrow
+		mr("E", "F", 90, 120),
+	}
+
+	got := HeartAttack(curves, matchups)
+	if got == nil || got.HomeTeamID != "C" {
+		t.Fatalf("HeartAttack: want C-D, got %+v", got)
+	}
+}
+
+func TestHeartAttackNoLeadChanges(t *testing.T) {
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", LeadChanges: 0},
+	}
+	matchups := []MatchupResult{mr("A", "B", 100, 90)}
+	if got := HeartAttack(curves, matchups); got != nil {
+		t.Errorf("HeartAttack: want nil when no lead changes, got %+v", got)
+	}
+}
+
 // Reference time used implicitly by the existing test helpers — keeps the
 // import of "time" consistent with the rest of the file.
 var _ = time.Now
