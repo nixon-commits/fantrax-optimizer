@@ -405,6 +405,172 @@ func TestAggregateSeasonAwards_NilRecapInSlice(t *testing.T) {
 	}
 }
 
+func TestWhale(t *testing.T) {
+	d1 := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)
+
+	days := []TeamDay{
+		{TeamID: "1", TeamName: "A", Date: d1, Pts: 80},
+		{TeamID: "2", TeamName: "B", Date: d1, Pts: 100}, // winner
+		{TeamID: "3", TeamName: "C", Date: d2, Pts: 100}, // ties B but later → loses
+		{TeamID: "4", TeamName: "D", Date: d2, Pts: 90},
+	}
+
+	got := Whale(days)
+	if got == nil || got.TeamID != "2" {
+		t.Fatalf("Whale: want team 2, got %+v", got)
+	}
+	if got.Pts != 100 {
+		t.Errorf("Whale.Pts: want 100, got %.1f", got.Pts)
+	}
+}
+
+func TestWhaleEmpty(t *testing.T) {
+	if got := Whale(nil); got != nil {
+		t.Errorf("Whale(nil): want nil, got %+v", got)
+	}
+}
+
+func TestDud(t *testing.T) {
+	d1 := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)
+
+	active := []PlayerLine{
+		{PlayerID: "1", Name: "Alpha", FPts: 5, Date: d1, OwnerTeam: "A"},
+		{PlayerID: "2", Name: "Bravo", FPts: -3, Date: d1, OwnerTeam: "B"},   // winner — most negative
+		{PlayerID: "3", Name: "Charlie", FPts: -3, Date: d2, OwnerTeam: "C"}, // ties Bravo but later
+		{PlayerID: "4", Name: "Delta", FPts: 2, Date: d1, OwnerTeam: "D"},
+	}
+
+	got := Dud(active)
+	if got == nil || got.PlayerID != "2" {
+		t.Fatalf("Dud: want player 2, got %+v", got)
+	}
+	if got.FPts != -3 {
+		t.Errorf("Dud.FPts: want -3, got %.1f", got.FPts)
+	}
+}
+
+func TestDudEmpty(t *testing.T) {
+	if got := Dud(nil); got != nil {
+		t.Errorf("Dud(nil): want nil, got %+v", got)
+	}
+}
+
+func TestHeartAttack(t *testing.T) {
+	low := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.4}, {HomeWP: 0.3}, {HomeWP: 0.2},
+		{HomeWP: 0.15}, {HomeWP: 0.1}, {HomeWP: 0.05}, {HomeWP: 0.0},
+	}
+	mid := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.6}, {HomeWP: 0.4}, {HomeWP: 0.6},
+		{HomeWP: 0.4}, {HomeWP: 0.6}, {HomeWP: 0.4}, {HomeWP: 0.55},
+	}
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", Points: low, LeadChanges: 1},
+		{HomeTeamID: "C", AwayTeamID: "D", Points: mid, LeadChanges: 6},
+		{HomeTeamID: "E", AwayTeamID: "F", Points: low, LeadChanges: 1},
+	}
+	matchups := []MatchupResult{
+		mr("A", "B", 100, 200), // blowout
+		mr("C", "D", 102, 100), // narrow
+		mr("E", "F", 90, 120),
+	}
+
+	got := HeartAttack(curves, matchups)
+	if got == nil || got.HomeTeamID != "C" {
+		t.Fatalf("HeartAttack: want C-D, got %+v", got)
+	}
+}
+
+func TestHeartAttackNoLeadChanges(t *testing.T) {
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", LeadChanges: 0},
+	}
+	matchups := []MatchupResult{mr("A", "B", 100, 90)}
+	if got := HeartAttack(curves, matchups); got != nil {
+		t.Errorf("HeartAttack: want nil when no lead changes, got %+v", got)
+	}
+}
+
+func TestComeback(t *testing.T) {
+	// Matchup 1: home wins after trailing badly mid-week (eligible).
+	deep := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.4}, {HomeWP: 0.2}, {HomeWP: 0.15},
+		{HomeWP: 0.4}, {HomeWP: 0.6}, {HomeWP: 0.7}, {HomeWP: 1.0},
+	}
+	// Matchup 2: home wins, mild dip but never below 0.30 (ineligible).
+	mild := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.45}, {HomeWP: 0.4}, {HomeWP: 0.5},
+		{HomeWP: 0.6}, {HomeWP: 0.7}, {HomeWP: 0.85}, {HomeWP: 1.0},
+	}
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", Points: deep},
+		{HomeTeamID: "C", AwayTeamID: "D", Points: mild},
+	}
+	matchups := []MatchupResult{
+		mr("A", "B", 200, 180),
+		mr("C", "D", 150, 145),
+	}
+
+	got := Comeback(curves, matchups)
+	if got == nil || got.TeamID != "A" {
+		t.Fatalf("Comeback: want A, got %+v", got)
+	}
+}
+
+func TestComebackNoEligible(t *testing.T) {
+	mild := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.55}, {HomeWP: 0.6}, {HomeWP: 0.65},
+		{HomeWP: 0.7}, {HomeWP: 0.75}, {HomeWP: 0.8}, {HomeWP: 1.0},
+	}
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", Points: mild},
+	}
+	matchups := []MatchupResult{mr("A", "B", 200, 180)}
+	if got := Comeback(curves, matchups); got != nil {
+		t.Errorf("Comeback: want nil (no eligible), got %+v", got)
+	}
+}
+
+func TestAggregateSeasonAwards_NewCategories(t *testing.T) {
+	d := time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC)
+	r := &Recap{
+		WeekNumber: 1,
+		Teams: []TeamWeek{
+			{TeamID: "1", TeamName: "Wahoos"},
+			{TeamID: "2", TeamName: "Sliders"},
+		},
+		Awards: Awards{
+			HeartAttack: &MatchupResult{HomeTeamID: "1", AwayTeamID: "2", WinnerID: "1"},
+			Comeback:    &MatchupTeamSide{TeamID: "1", TeamName: "Wahoos"},
+			Whale:       &TeamDay{TeamID: "2", TeamName: "Sliders", Date: d, Pts: 200},
+			Dud:         &PlayerLine{Name: "Smith", FPts: -5, Date: d, OwnerTeam: "Sliders"},
+		},
+	}
+	snaps := AggregateSeasonAwards([]*Recap{r})
+	if len(snaps) != 1 || snaps[0] == nil {
+		t.Fatalf("snaps: want 1 non-nil, got %+v", snaps)
+	}
+	want := map[string]string{
+		AwardHeartAttack: "1",
+		AwardComeback:    "1",
+		AwardWhale:       "2",
+		AwardDud:         "2",
+	}
+	got := map[string]string{}
+	for _, cat := range snaps[0].Categories {
+		if len(cat.Teams) > 0 {
+			got[cat.AwardName] = cat.Teams[0].TeamID
+		}
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: want team %q, got %q", k, v, got[k])
+		}
+	}
+}
+
 // Reference time used implicitly by the existing test helpers — keeps the
 // import of "time" consistent with the rest of the file.
 var _ = time.Now

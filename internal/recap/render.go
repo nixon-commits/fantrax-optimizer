@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,10 @@ var funcMap = template.FuncMap{
 	"matchupLoserPts":   matchupLoserPts,
 	"matchupSideClass":  matchupSideClass,
 	"awardEmoji":        awardEmoji,
+	"sparkPath":         sparkPath,
+	"fullChartPath":     fullChartPath,
+	"curveForMatchup":   curveForMatchup,
+	"renderActivity":    renderActivity,
 }
 
 // awardEmoji returns the visual icon shown next to a weekly award category in
@@ -53,6 +58,14 @@ func awardEmoji(name string) string {
 		return "🔥"
 	case AwardWorstStart:
 		return "💣"
+	case AwardHeartAttack:
+		return "💓"
+	case AwardComeback:
+		return "↩️"
+	case AwardWhale:
+		return "🐳"
+	case AwardDud:
+		return "😴"
 	}
 	return ""
 }
@@ -111,6 +124,92 @@ func barWidth(eff float64) int {
 		w = 100
 	}
 	return w
+}
+
+// sparkPath returns an SVG <path d="..."> string for an inline sparkline.
+// Width/height match the .matchup .spark CSS rule (60×24). Maps WP in [0,1]
+// linearly to vertical pixel position (HomeWP=1.0 → top, =0.0 → bottom).
+func sparkPath(curve MatchupWPCurve) string {
+	if len(curve.Points) < 2 {
+		return ""
+	}
+	const w, h = 60.0, 24.0
+	n := len(curve.Points)
+	step := w / float64(n-1)
+	var out strings.Builder
+	for i, p := range curve.Points {
+		x := float64(i) * step
+		y := (1.0 - p.HomeWP) * h
+		if i == 0 {
+			fmt.Fprintf(&out, "M%.2f,%.2f", x, y)
+		} else {
+			fmt.Fprintf(&out, " L%.2f,%.2f", x, y)
+		}
+	}
+	return out.String()
+}
+
+// fullChartPath returns an SVG <path> for the Game of the Week hero chart.
+// Width/height match the .game-of-week .wp-chart CSS (320×120 viewBox).
+func fullChartPath(curve MatchupWPCurve) string {
+	if len(curve.Points) < 2 {
+		return ""
+	}
+	const w, h = 320.0, 120.0
+	n := len(curve.Points)
+	step := w / float64(n-1)
+	var out strings.Builder
+	for i, p := range curve.Points {
+		x := float64(i) * step
+		y := (1.0 - p.HomeWP) * h
+		if i == 0 {
+			fmt.Fprintf(&out, "M%.2f,%.2f", x, y)
+		} else {
+			fmt.Fprintf(&out, " L%.2f,%.2f", x, y)
+		}
+	}
+	return out.String()
+}
+
+// curveForMatchup looks up the WP curve matching the given matchup. Returns
+// an empty zero-value curve when not found (template must guard with
+// {{if .Points}} before rendering).
+func curveForMatchup(curves []MatchupWPCurve, m MatchupResult) MatchupWPCurve {
+	for _, c := range curves {
+		if (c.HomeTeamID == m.HomeTeamID && c.AwayTeamID == m.AwayTeamID) ||
+			(c.HomeTeamID == m.AwayTeamID && c.AwayTeamID == m.HomeTeamID) {
+			return c
+		}
+	}
+	return MatchupWPCurve{}
+}
+
+// renderActivity returns the human-readable line for one transaction entry.
+func renderActivity(e ActivityEntry) string {
+	date := fmtDate(e.Date)
+	switch e.Kind {
+	case "trade":
+		return fmt.Sprintf("Traded with %s — got: %s · sent: %s (%s)",
+			e.OtherTeam, joinNames(e.Received), joinNames(e.Sent), date)
+	case "swap":
+		return fmt.Sprintf("Swap: +%s for −%s (%s)", e.SwapIn, e.SwapOut, date)
+	case "claim":
+		ct := e.ClaimType
+		if ct == "" {
+			ct = "FA"
+		}
+		return fmt.Sprintf("+%s (%s, %s)", e.Player, date, ct)
+	case "drop":
+		return fmt.Sprintf("−%s (%s)", e.Player, date)
+	}
+	return ""
+}
+
+func joinNames(names []string) string {
+	if len(names) == 0 {
+		return "—"
+	}
+	return strings.Join(names, ", ")
 }
 
 func matchupWinnerName(m *MatchupResult) string {

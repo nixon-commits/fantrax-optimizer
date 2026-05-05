@@ -94,6 +94,22 @@
   @media (max-width: 480px) {
     .award-grid, .pitcher-grid, .leaders { grid-template-columns: 1fr; }
   }
+  .game-of-week { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .game-of-week .gw-head { margin-bottom: 10px; }
+  .game-of-week .gw-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; background: var(--accent-soft); color: var(--accent); }
+  .game-of-week .gw-scores { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .game-of-week .gw-team { display: flex; flex-direction: column; }
+  .game-of-week .gw-team.away { text-align: right; }
+  .game-of-week .gw-team .name { font-size: 14px; font-weight: 600; color: var(--text); }
+  .game-of-week .gw-team .pts { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .game-of-week .wp-chart { width: 100%; height: 120px; background: var(--bg-card-2); border-radius: 6px; margin-bottom: 6px; }
+  .game-of-week .x-axis { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); padding: 0 2px; }
+  .matchup .vs { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .matchup .spark { width: 60px; height: 24px; }
+  .matchup .mu-badge { font-size: 14px; vertical-align: middle; }
+  .activity-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; }
+  .activity-card h3 { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); margin: 0 0 6px; padding-left: 0; font-weight: 600; }
+  .activity-row { font-size: 12px; color: var(--text-dim); padding: 3px 0; }
 </style>
 </head>
 <body>
@@ -113,6 +129,39 @@
   </div>
   {{- end}}
 </header>
+
+{{- with .Awards}}
+{{- if .GameOfWeek}}
+{{- $curve := curveForMatchup $.WPCurves .GameOfWeek}}
+<section>
+  <h2>Game of the Week</h2>
+  <div class="game-of-week">
+    <div class="gw-head">
+      <span class="gw-badge">💓 Heart Attack</span>
+    </div>
+    <div class="gw-scores">
+      <div class="gw-team home">
+        <span class="name">{{.GameOfWeek.HomeTeamName}}</span>
+        <span class="pts">{{pts .GameOfWeek.HomePts}}</span>
+      </div>
+      <div class="gw-team away">
+        <span class="name">{{.GameOfWeek.AwayTeamName}}</span>
+        <span class="pts">{{pts .GameOfWeek.AwayPts}}</span>
+      </div>
+    </div>
+    {{- if $curve.Points}}
+    <svg class="wp-chart" viewBox="0 0 320 120" preserveAspectRatio="none">
+      <line x1="0" y1="60" x2="320" y2="60" stroke="var(--border)" stroke-width="0.5" stroke-dasharray="3,3"/>
+      <path d="{{fullChartPath $curve}}" stroke="var(--accent)" stroke-width="2" fill="none"/>
+    </svg>
+    <div class="x-axis">
+      {{- range $i, $p := $curve.Points}}{{if gt $i 0}}<span>{{fmtDate $p.Date}}</span>{{end}}{{end}}
+    </div>
+    {{- end}}
+  </div>
+</section>
+{{- end}}
+{{- end}}
 
 {{- with .Awards}}
 <section>
@@ -188,6 +237,22 @@
       <div class="name">{{.LowestPtsInWin.TeamName}}</div>
       <div class="pts">{{pts .LowestPtsInWin.Pts}}</div>
       <div class="sub">vs {{.LowestPtsInWin.OppName}} {{pts .LowestPtsInWin.OppPts}}</div>
+    </div>
+    {{- end}}
+    {{- if .Whale}}
+    <div class="award">
+      <div class="label"><span>Whale</span><span class="icon">🐳</span></div>
+      <div class="name">{{.Whale.TeamName}}</div>
+      <div class="pts">{{pts .Whale.Pts}}</div>
+      <div class="sub">{{fmtDate .Whale.Date}}</div>
+    </div>
+    {{- end}}
+    {{- if .Dud}}
+    <div class="award">
+      <div class="label"><span>Dud</span><span class="icon">😴</span></div>
+      <div class="name">{{.Dud.Name}}</div>
+      <div class="pts">{{pts .Dud.FPts}}</div>
+      <div class="sub">{{.Dud.OwnerTeam}} · {{fmtDate .Dud.Date}}</div>
     </div>
     {{- end}}
   </div>
@@ -269,20 +334,47 @@
 
 <section>
   <h2>Matchup Results</h2>
+  {{- $heart := .Awards.HeartAttack}}
+  {{- $comeback := .Awards.Comeback}}
   {{- range .Matchups}}
+  {{- $curve := curveForMatchup $.WPCurves .}}
   <div class="matchup">
     <div class="team away {{matchupSideClass . .AwayTeamID}}">
-      <div class="name">{{.AwayTeamName}}</div>
+      <div class="name">{{.AwayTeamName}}{{if and $comeback (eq $comeback.TeamID .AwayTeamID)}} <span class="mu-badge">↩️</span>{{end}}</div>
       <div class="pts">{{pts .AwayPts}}</div>
     </div>
-    <div class="vs">vs</div>
+    <div class="vs">
+      vs
+      {{- if $curve.Points}}
+      <svg class="spark" viewBox="0 0 60 24" preserveAspectRatio="none">
+        <path d="{{sparkPath $curve}}" stroke="var(--accent)" stroke-width="1.5" fill="none"/>
+      </svg>
+      {{- end}}
+      {{- if and $heart (eq $heart.HomeTeamID .HomeTeamID) (eq $heart.AwayTeamID .AwayTeamID)}}
+      <span class="mu-badge">💓</span>
+      {{- end}}
+    </div>
     <div class="team home {{matchupSideClass . .HomeTeamID}}">
-      <div class="name">{{.HomeTeamName}}</div>
+      <div class="name">{{.HomeTeamName}}{{if and $comeback (eq $comeback.TeamID .HomeTeamID)}} <span class="mu-badge">↩️</span>{{end}}</div>
       <div class="pts">{{pts .HomePts}}</div>
     </div>
   </div>
   {{- end}}
 </section>
+
+{{- if and .RosterActivity .RosterActivity.Teams}}
+<section>
+  <h2>Roster Activity</h2>
+  {{- range .RosterActivity.Teams}}
+  <div class="activity-card">
+    <h3>{{.TeamName}}</h3>
+    {{- range .Entries}}
+    <div class="activity-row">{{renderActivity .}}</div>
+    {{- end}}
+  </div>
+  {{- end}}
+</section>
+{{- end}}
 
 {{- if .Season}}
 <section>

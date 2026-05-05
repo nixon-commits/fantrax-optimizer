@@ -1,6 +1,9 @@
 package recap
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 // MostEfficient returns the team with the highest Actual/Optimal ratio. Teams
 // with non-positive optimal points are ignored. Ties broken by lexicographic
@@ -249,6 +252,144 @@ func pickStart(starts []PitcherStartLine, less func(a, b *PitcherStartLine) bool
 	return &out
 }
 
+// Whale returns the highest single-day team total across the league × week.
+// Tiebreak: earliest date, then TeamID asc. Returns nil if days is empty.
+func Whale(days []TeamDay) *TeamDay {
+	var best *TeamDay
+	for i := range days {
+		td := &days[i]
+		switch {
+		case best == nil:
+		case td.Pts > best.Pts:
+		case td.Pts == best.Pts && td.Date.Before(best.Date):
+		case td.Pts == best.Pts && td.Date.Equal(best.Date) && td.TeamID < best.TeamID:
+		default:
+			continue
+		}
+		t := *td
+		best = &t
+	}
+	return best
+}
+
+// Dud returns the lowest single-day active-starter score across the league ×
+// week. Negatives eligible. Tiebreak: earliest date, then Name asc.
+// Returns nil if active is empty.
+func Dud(active []PlayerLine) *PlayerLine {
+	var best *PlayerLine
+	for i := range active {
+		l := &active[i]
+		switch {
+		case best == nil:
+		case l.FPts < best.FPts:
+		case l.FPts == best.FPts && l.Date.Before(best.Date):
+		case l.FPts == best.FPts && l.Date.Equal(best.Date) && l.Name < best.Name:
+		default:
+			continue
+		}
+		t := *l
+		best = &t
+	}
+	return best
+}
+
+// HeartAttack returns the matchup with the most lead changes in its WP
+// curve. Returns nil if no matchup has any lead changes (an "all-blowouts"
+// week — the recap will hide the Game of the Week section in that case).
+//
+// matchups is the per-week MatchupResult list; curves are matched by
+// canonical team-pair key, so order is independent.
+//
+// Tiebreak: smallest final margin → home TeamID asc.
+func HeartAttack(curves []MatchupWPCurve, matchups []MatchupResult) *MatchupResult {
+	if len(curves) == 0 || len(matchups) == 0 {
+		return nil
+	}
+	mByPair := make(map[string]MatchupResult, len(matchups))
+	for _, m := range matchups {
+		mByPair[canonPair(m.HomeTeamID, m.AwayTeamID)] = m
+	}
+
+	var best *MatchupResult
+	var bestChanges int
+	for _, c := range curves {
+		if c.LeadChanges == 0 {
+			continue
+		}
+		m, ok := mByPair[canonPair(c.HomeTeamID, c.AwayTeamID)]
+		if !ok {
+			continue
+		}
+		switch {
+		case best == nil:
+		case c.LeadChanges > bestChanges:
+		case c.LeadChanges == bestChanges && m.Margin < best.Margin:
+		case c.LeadChanges == bestChanges && m.Margin == best.Margin && m.HomeTeamID < best.HomeTeamID:
+		default:
+			continue
+		}
+		copyM := m
+		best = &copyM
+		bestChanges = c.LeadChanges
+	}
+	return best
+}
+
+// comebackThreshold is the maximum mid-week WP a winner can have hit and
+// still qualify for the Comeback award. 0.30 keeps it meaningful — only
+// genuine "left for dead" comebacks count.
+const comebackThreshold = 0.30
+
+// Comeback returns the eventual winner with the lowest mid-week WP, gated
+// at comebackThreshold. Returns nil if no winner had a mid-week WP below
+// the threshold. Tiebreak: smallest min WP → TeamID asc.
+func Comeback(curves []MatchupWPCurve, matchups []MatchupResult) *MatchupTeamSide {
+	if len(curves) == 0 || len(matchups) == 0 {
+		return nil
+	}
+	mByPair := make(map[string]MatchupResult, len(matchups))
+	for _, m := range matchups {
+		mByPair[canonPair(m.HomeTeamID, m.AwayTeamID)] = m
+	}
+
+	var best *MatchupTeamSide
+	bestMin := math.Inf(1)
+	for _, c := range curves {
+		m, ok := mByPair[canonPair(c.HomeTeamID, c.AwayTeamID)]
+		if !ok || m.IsTie {
+			continue
+		}
+		homeWon := m.WinnerID == m.HomeTeamID
+		minWP, ok := MinWinnerWP(c.Points, homeWon)
+		if !ok || minWP >= comebackThreshold {
+			continue
+		}
+		var side MatchupTeamSide
+		if homeWon {
+			side = MatchupTeamSide{
+				TeamID: m.HomeTeamID, TeamName: m.HomeTeamName, Pts: m.HomePts,
+				OppName: m.AwayTeamName, OppPts: m.AwayPts,
+			}
+		} else {
+			side = MatchupTeamSide{
+				TeamID: m.AwayTeamID, TeamName: m.AwayTeamName, Pts: m.AwayPts,
+				OppName: m.HomeTeamName, OppPts: m.HomePts,
+			}
+		}
+		switch {
+		case best == nil:
+		case minWP < bestMin:
+		case minWP == bestMin && side.TeamID < best.TeamID:
+		default:
+			continue
+		}
+		copySide := side
+		best = &copySide
+		bestMin = minWP
+	}
+	return best
+}
+
 // Award name labels rendered in the season leaderboard. Match the per-week
 // display labels used in template.html for consistency.
 const (
@@ -262,6 +403,10 @@ const (
 	AwardLowestPtsWin   = "Lowest Pts in Win"
 	AwardBestStart      = "Best Start"
 	AwardWorstStart     = "Worst Start"
+	AwardHeartAttack    = "Heart Attack"
+	AwardComeback       = "Comeback"
+	AwardWhale          = "Whale"
+	AwardDud            = "Dud"
 )
 
 // SeasonShellingsLimit caps how many worst pitcher starts of the season are
@@ -281,6 +426,10 @@ var awardOrder = []string{
 	AwardLowestPtsWin,
 	AwardBestStart,
 	AwardWorstStart,
+	AwardHeartAttack,
+	AwardComeback,
+	AwardWhale,
+	AwardDud,
 }
 
 // AggregateSeasonAwards walks recaps in order and returns one cumulative
@@ -366,6 +515,20 @@ func AggregateSeasonAwards(recaps []*Recap) []*SeasonAwards {
 			s := *a.WorstSingleStart
 			s.WeekNumber = r.WeekNumber
 			allShellings = append(allShellings, s)
+		}
+		if a.HeartAttack != nil {
+			add(AwardHeartAttack, a.HeartAttack.WinnerID)
+		}
+		if a.Comeback != nil {
+			add(AwardComeback, a.Comeback.TeamID)
+		}
+		if a.Whale != nil {
+			add(AwardWhale, a.Whale.TeamID)
+		}
+		if a.Dud != nil {
+			if id, ok := nameToID[a.Dud.OwnerTeam]; ok {
+				add(AwardDud, id)
+			}
 		}
 
 		// Build snapshot in fixed display order, skipping awards no team has
