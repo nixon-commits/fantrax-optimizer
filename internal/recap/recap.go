@@ -207,25 +207,17 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 	awards.GameOfWeek = awards.HeartAttack
 	awards.Comeback = Comeback(curves, matchups)
 
-	var activity *RosterActivity
-	if txs, err := ft.GetWeekTransactions(opts.WeekStart, opts.WeekEnd); err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: roster activity: %v\n", err)
-	} else {
-		activity = BuildRosterActivity(txs, teamMap)
-	}
-
 	return &Recap{
-		Season:         opts.WeekStart.Year(),
-		WeekNumber:     weekNum,
-		WeekLabel:      weekLabel,
-		StartDate:      opts.WeekStart,
-		EndDate:        opts.WeekEnd,
-		GeneratedAt:    time.Now().UTC(),
-		Teams:          teamWeeks,
-		Matchups:       matchups,
-		Awards:         awards,
-		WPCurves:       curves,
-		RosterActivity: activity,
+		Season:      opts.WeekStart.Year(),
+		WeekNumber:  weekNum,
+		WeekLabel:   weekLabel,
+		StartDate:   opts.WeekStart,
+		EndDate:     opts.WeekEnd,
+		GeneratedAt: time.Now().UTC(),
+		Teams:       teamWeeks,
+		Matchups:    matchups,
+		Awards:      awards,
+		WPCurves:    curves,
 	}, nil
 }
 

@@ -30,7 +30,6 @@ var funcMap = template.FuncMap{
 	"sparkPath":         sparkPath,
 	"fullChartPath":     fullChartPath,
 	"curveForMatchup":   curveForMatchup,
-	"renderActivity":    renderActivity,
 	"truncate":          truncateString,
 }
 
@@ -197,34 +196,6 @@ func curveForMatchup(curves []MatchupWPCurve, m MatchupResult) MatchupWPCurve {
 		}
 	}
 	return MatchupWPCurve{}
-}
-
-// renderActivity returns the human-readable line for one transaction entry.
-func renderActivity(e ActivityEntry) string {
-	date := fmtDate(e.Date)
-	switch e.Kind {
-	case "trade":
-		return fmt.Sprintf("Traded with %s — got: %s · sent: %s (%s)",
-			e.OtherTeam, joinNames(e.Received), joinNames(e.Sent), date)
-	case "swap":
-		return fmt.Sprintf("Swap: +%s for −%s (%s)", e.SwapIn, e.SwapOut, date)
-	case "claim":
-		ct := e.ClaimType
-		if ct == "" {
-			ct = "FA"
-		}
-		return fmt.Sprintf("+%s (%s, %s)", e.Player, date, ct)
-	case "drop":
-		return fmt.Sprintf("−%s (%s)", e.Player, date)
-	}
-	return ""
-}
-
-func joinNames(names []string) string {
-	if len(names) == 0 {
-		return "—"
-	}
-	return strings.Join(names, ", ")
 }
 
 func matchupWinnerName(m *MatchupResult) string {

@@ -9,17 +9,16 @@ import "time"
 // Recap is the full data model for a single matchup-week recap. It's
 // JSON-serializable for debugging and feeds the HTML template.
 type Recap struct {
-	Season         int              `json:"season"`
-	WeekNumber     int              `json:"week_number"`
-	WeekLabel      string           `json:"week_label"`
-	StartDate      time.Time        `json:"start_date"`
-	EndDate        time.Time        `json:"end_date"`
-	GeneratedAt    time.Time        `json:"generated_at"`
-	Teams          []TeamWeek       `json:"teams"`
-	Matchups       []MatchupResult  `json:"matchups"`
-	Awards         Awards           `json:"awards"`
-	WPCurves       []MatchupWPCurve `json:"wp_curves,omitempty"`
-	RosterActivity *RosterActivity  `json:"roster_activity,omitempty"`
+	Season      int              `json:"season"`
+	WeekNumber  int              `json:"week_number"`
+	WeekLabel   string           `json:"week_label"`
+	StartDate   time.Time        `json:"start_date"`
+	EndDate     time.Time        `json:"end_date"`
+	GeneratedAt time.Time        `json:"generated_at"`
+	Teams       []TeamWeek       `json:"teams"`
+	Matchups    []MatchupResult  `json:"matchups"`
+	Awards      Awards           `json:"awards"`
+	WPCurves    []MatchupWPCurve `json:"wp_curves,omitempty"`
 }
 
 // TeamWeek is a single team's aggregated weekly performance.
@@ -169,36 +168,4 @@ type TeamDay struct {
 	TeamName string    `json:"team_name"`
 	Date     time.Time `json:"date"`
 	Pts      float64   `json:"pts"`
-}
-
-// RosterActivity is the per-team transaction log rendered in the recap's
-// Roster Activity section. Teams with zero entries are omitted.
-type RosterActivity struct {
-	Teams []TeamActivity `json:"teams"`
-}
-
-// TeamActivity bundles one team's transactions over the matchup week.
-type TeamActivity struct {
-	TeamID   string          `json:"team_id"`
-	TeamName string          `json:"team_name"`
-	Entries  []ActivityEntry `json:"entries"`
-}
-
-// ActivityEntry is a single transaction. Kind must be one of "claim",
-// "drop", "swap", or "trade". The Kind value determines which fields are
-// populated:
-//   - "claim": Player, ClaimType
-//   - "drop":  Player
-//   - "swap":  SwapIn (added), SwapOut (dropped)
-//   - "trade": OtherTeam, Received, Sent
-type ActivityEntry struct {
-	Date      time.Time `json:"date"`
-	Kind      string    `json:"kind"`
-	Player    string    `json:"player,omitempty"`
-	SwapIn    string    `json:"swap_in,omitempty"`
-	SwapOut   string    `json:"swap_out,omitempty"`
-	OtherTeam string    `json:"other_team,omitempty"`
-	Received  []string  `json:"received,omitempty"`
-	Sent      []string  `json:"sent,omitempty"`
-	ClaimType string    `json:"claim_type,omitempty"` // "FA" | "WW"
 }

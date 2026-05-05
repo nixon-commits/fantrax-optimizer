@@ -87,9 +87,7 @@ The snapshot archive is opt-in (`--archive-projections` flag or `BACKTEST_ARCHIV
 
 **WP simulation** — `wp.go` exposes `ComputeWPCurve` (5000-iteration team-level Monte Carlo, RNG seeded by `hash(homeID|awayID|weekNumber)` so reruns are byte-identical), plus `LeagueDailySigma`, `LeadChangeCount`, `MinWinnerWP`. Each team's expected daily FPts is its within-week average — pragmatic simplification of the spec's "season-to-date" intent that uses only data the recap already gathers. Sigma is the sample stddev across 12 teams × 7 days = 84 points.
 
-**Roster Activity** — `roster_activity.go` builds a per-team transaction log from `client.GetWeekTransactions`. Same-day exactly 1 CLAIM + 1 DROP for the same team merges into a single "swap" entry; multi-claim/multi-drop days render separately. Trades render once per team-side from a single `TradeGroupID` bucket. Soft-fail on fetch error: section omitted, recap renders without it.
-
-**Game of the Week** — featured at the top of the page when at least one matchup has any lead changes; otherwise hidden. Picked as `HeartAttack(curves, matchups)` — most lead changes wins, ties broken by smallest final margin then home `TeamID` asc. `Awards.GameOfWeek` and `Awards.HeartAttack` always reference the same matchup (single source of truth).
+**Game of the Week** — featured at the top of the page when at least one matchup has any lead changes; otherwise hidden. Picked as `HeartAttack(curves, matchups)` — most lead changes wins, ties broken by smallest final margin then home `TeamID` asc. `Awards.GameOfWeek` and `Awards.HeartAttack` always reference the same matchup (single source of truth). The hero chart is rendered as a 380×140 SVG with mirrored 100/75/50/75/100% y-axis labels, half tints (green=home favored on top, red=away favored on bottom), team name labels in their respective halves, and dated x-axis ticks.
 
 **New awards** — `Whale` (biggest single-day team total), `Dud` (lowest single-day active starter, negatives eligible), `HeartAttack` (most lead changes), `Comeback` (winner with mid-week WP < 0.30). All four feed into `AggregateSeasonAwards` and the season cumulative leaderboard.
 
