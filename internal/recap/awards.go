@@ -403,6 +403,10 @@ const (
 	AwardLowestPtsWin   = "Lowest Pts in Win"
 	AwardBestStart      = "Best Start"
 	AwardWorstStart     = "Worst Start"
+	AwardHeartAttack    = "Heart Attack"
+	AwardComeback       = "Comeback"
+	AwardWhale          = "Whale"
+	AwardDud            = "Dud"
 )
 
 // SeasonShellingsLimit caps how many worst pitcher starts of the season are
@@ -422,6 +426,10 @@ var awardOrder = []string{
 	AwardLowestPtsWin,
 	AwardBestStart,
 	AwardWorstStart,
+	AwardHeartAttack,
+	AwardComeback,
+	AwardWhale,
+	AwardDud,
 }
 
 // AggregateSeasonAwards walks recaps in order and returns one cumulative
@@ -507,6 +515,20 @@ func AggregateSeasonAwards(recaps []*Recap) []*SeasonAwards {
 			s := *a.WorstSingleStart
 			s.WeekNumber = r.WeekNumber
 			allShellings = append(allShellings, s)
+		}
+		if a.HeartAttack != nil {
+			add(AwardHeartAttack, a.HeartAttack.WinnerID)
+		}
+		if a.Comeback != nil {
+			add(AwardComeback, a.Comeback.TeamID)
+		}
+		if a.Whale != nil {
+			add(AwardWhale, a.Whale.TeamID)
+		}
+		if a.Dud != nil {
+			if id, ok := nameToID[a.Dud.OwnerTeam]; ok {
+				add(AwardDud, id)
+			}
 		}
 
 		// Build snapshot in fixed display order, skipping awards no team has

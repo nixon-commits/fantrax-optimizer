@@ -533,6 +533,44 @@ func TestComebackNoEligible(t *testing.T) {
 	}
 }
 
+func TestAggregateSeasonAwards_NewCategories(t *testing.T) {
+	d := time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC)
+	r := &Recap{
+		WeekNumber: 1,
+		Teams: []TeamWeek{
+			{TeamID: "1", TeamName: "Wahoos"},
+			{TeamID: "2", TeamName: "Sliders"},
+		},
+		Awards: Awards{
+			HeartAttack: &MatchupResult{HomeTeamID: "1", AwayTeamID: "2", WinnerID: "1"},
+			Comeback:    &MatchupTeamSide{TeamID: "1", TeamName: "Wahoos"},
+			Whale:       &TeamDay{TeamID: "2", TeamName: "Sliders", Date: d, Pts: 200},
+			Dud:         &PlayerLine{Name: "Smith", FPts: -5, Date: d, OwnerTeam: "Sliders"},
+		},
+	}
+	snaps := AggregateSeasonAwards([]*Recap{r})
+	if len(snaps) != 1 || snaps[0] == nil {
+		t.Fatalf("snaps: want 1 non-nil, got %+v", snaps)
+	}
+	want := map[string]string{
+		AwardHeartAttack: "1",
+		AwardComeback:    "1",
+		AwardWhale:       "2",
+		AwardDud:         "2",
+	}
+	got := map[string]string{}
+	for _, cat := range snaps[0].Categories {
+		if len(cat.Teams) > 0 {
+			got[cat.AwardName] = cat.Teams[0].TeamID
+		}
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s: want team %q, got %q", k, v, got[k])
+		}
+	}
+}
+
 // Reference time used implicitly by the existing test helpers — keeps the
 // import of "time" consistent with the rest of the file.
 var _ = time.Now
