@@ -111,3 +111,26 @@ func TestComputeWPCurve_Determinism(t *testing.T) {
 		t.Errorf("ComputeWPCurve is non-deterministic")
 	}
 }
+
+func TestLeadChangeCount(t *testing.T) {
+	cases := []struct {
+		name string
+		wps  []float64
+		want int
+	}{
+		{"flat half", []float64{0.5, 0.5, 0.5, 0.5}, 0},
+		{"home dominant", []float64{0.5, 0.7, 0.8, 0.9}, 1}, // crosses 0.5 once
+		{"alternating", []float64{0.5, 0.6, 0.4, 0.6, 0.4, 0.6, 0.4, 0.6}, 7},
+		{"never crosses", []float64{0.6, 0.7, 0.55, 0.8}, 0},
+		{"goes to tie midway", []float64{0.6, 0.5, 0.4, 0.5, 0.4}, 1}, // crosses on .4
+	}
+	for _, c := range cases {
+		points := make([]WPPoint, len(c.wps))
+		for i, w := range c.wps {
+			points[i] = WPPoint{HomeWP: w}
+		}
+		if got := LeadChangeCount(points); got != c.want {
+			t.Errorf("%s: want %d changes, got %d", c.name, c.want, got)
+		}
+	}
+}

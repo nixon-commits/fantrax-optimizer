@@ -127,11 +127,32 @@ func ComputeWPCurve(in WPInputs) MatchupWPCurve {
 		}
 	}
 
-	return MatchupWPCurve{
+	curve := MatchupWPCurve{
 		HomeTeamID: in.HomeTeamID,
 		AwayTeamID: in.AwayTeamID,
 		Points:     points,
-		// LeadChanges is filled in by the orchestrator after this returns,
-		// using the LeadChangeCount helper from the next task.
 	}
+	curve.LeadChanges = LeadChangeCount(points)
+	return curve
+}
+
+// LeadChangeCount returns the number of times the leader (defined as
+// HomeWP > 0.5) flips across consecutive points. Days at exactly 0.5 do not
+// trigger a transition either way.
+func LeadChangeCount(points []WPPoint) int {
+	if len(points) < 2 {
+		return 0
+	}
+	count := 0
+	prev := points[0].HomeWP
+	for i := 1; i < len(points); i++ {
+		cur := points[i].HomeWP
+		// "Side" is HomeWP > 0.5 (true=home leads). Skip points at 0.5 by
+		// carrying prev forward: a tie point alone does not count.
+		if (prev > 0.5) != (cur > 0.5) {
+			count++
+		}
+		prev = cur
+	}
+	return count
 }
