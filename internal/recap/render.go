@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"math"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,9 @@ var funcMap = template.FuncMap{
 	"matchupLoserPts":   matchupLoserPts,
 	"matchupSideClass":  matchupSideClass,
 	"awardEmoji":        awardEmoji,
+	"sparkPath":         sparkPath,
+	"fullChartPath":     fullChartPath,
+	"curveForMatchup":   curveForMatchup,
 }
 
 // awardEmoji returns the visual icon shown next to a weekly award category in
@@ -119,6 +123,64 @@ func barWidth(eff float64) int {
 		w = 100
 	}
 	return w
+}
+
+// sparkPath returns an SVG <path d="..."> string for an inline sparkline.
+// Width/height match the .matchup .spark CSS rule (60×24). Maps WP in [0,1]
+// linearly to vertical pixel position (HomeWP=1.0 → top, =0.0 → bottom).
+func sparkPath(curve MatchupWPCurve) string {
+	if len(curve.Points) < 2 {
+		return ""
+	}
+	const w, h = 60.0, 24.0
+	n := len(curve.Points)
+	step := w / float64(n-1)
+	var out strings.Builder
+	for i, p := range curve.Points {
+		x := float64(i) * step
+		y := (1.0 - p.HomeWP) * h
+		if i == 0 {
+			fmt.Fprintf(&out, "M%.2f,%.2f", x, y)
+		} else {
+			fmt.Fprintf(&out, " L%.2f,%.2f", x, y)
+		}
+	}
+	return out.String()
+}
+
+// fullChartPath returns an SVG <path> for the Game of the Week hero chart.
+// Width/height match the .game-of-week .wp-chart CSS (320×120 viewBox).
+func fullChartPath(curve MatchupWPCurve) string {
+	if len(curve.Points) < 2 {
+		return ""
+	}
+	const w, h = 320.0, 120.0
+	n := len(curve.Points)
+	step := w / float64(n-1)
+	var out strings.Builder
+	for i, p := range curve.Points {
+		x := float64(i) * step
+		y := (1.0 - p.HomeWP) * h
+		if i == 0 {
+			fmt.Fprintf(&out, "M%.2f,%.2f", x, y)
+		} else {
+			fmt.Fprintf(&out, " L%.2f,%.2f", x, y)
+		}
+	}
+	return out.String()
+}
+
+// curveForMatchup looks up the WP curve matching the given matchup. Returns
+// an empty zero-value curve when not found (template must guard with
+// {{if .Points}} before rendering).
+func curveForMatchup(curves []MatchupWPCurve, m MatchupResult) MatchupWPCurve {
+	for _, c := range curves {
+		if (c.HomeTeamID == m.HomeTeamID && c.AwayTeamID == m.AwayTeamID) ||
+			(c.HomeTeamID == m.AwayTeamID && c.AwayTeamID == m.HomeTeamID) {
+			return c
+		}
+	}
+	return MatchupWPCurve{}
 }
 
 func matchupWinnerName(m *MatchupResult) string {
