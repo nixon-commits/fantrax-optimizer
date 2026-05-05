@@ -431,6 +431,32 @@ func TestWhaleEmpty(t *testing.T) {
 	}
 }
 
+func TestDud(t *testing.T) {
+	d1 := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)
+
+	active := []PlayerLine{
+		{PlayerID: "1", Name: "Alpha", FPts: 5, Date: d1, OwnerTeam: "A"},
+		{PlayerID: "2", Name: "Bravo", FPts: -3, Date: d1, OwnerTeam: "B"},   // winner — most negative
+		{PlayerID: "3", Name: "Charlie", FPts: -3, Date: d2, OwnerTeam: "C"}, // ties Bravo but later
+		{PlayerID: "4", Name: "Delta", FPts: 2, Date: d1, OwnerTeam: "D"},
+	}
+
+	got := Dud(active)
+	if got == nil || got.PlayerID != "2" {
+		t.Fatalf("Dud: want player 2, got %+v", got)
+	}
+	if got.FPts != -3 {
+		t.Errorf("Dud.FPts: want -3, got %.1f", got.FPts)
+	}
+}
+
+func TestDudEmpty(t *testing.T) {
+	if got := Dud(nil); got != nil {
+		t.Errorf("Dud(nil): want nil, got %+v", got)
+	}
+}
+
 // Reference time used implicitly by the existing test helpers — keeps the
 // import of "time" consistent with the rest of the file.
 var _ = time.Now

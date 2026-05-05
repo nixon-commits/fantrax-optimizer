@@ -269,6 +269,27 @@ func Whale(days []TeamDay) *TeamDay {
 	return best
 }
 
+// Dud returns the lowest single-day active-starter score across the league ×
+// week. Negatives eligible. Tiebreak: earliest date, then Name asc.
+// Returns nil if active is empty.
+func Dud(active []PlayerLine) *PlayerLine {
+	var best *PlayerLine
+	for i := range active {
+		l := &active[i]
+		switch {
+		case best == nil:
+		case l.FPts < best.FPts:
+		case l.FPts == best.FPts && l.Date.Before(best.Date):
+		case l.FPts == best.FPts && l.Date.Equal(best.Date) && l.Name < best.Name:
+		default:
+			continue
+		}
+		t := *l
+		best = &t
+	}
+	return best
+}
+
 // Award name labels rendered in the season leaderboard. Match the per-week
 // display labels used in template.html for consistency.
 const (
