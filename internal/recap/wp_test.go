@@ -134,3 +134,63 @@ func TestLeadChangeCount(t *testing.T) {
 		}
 	}
 }
+
+func TestMinWinnerWP(t *testing.T) {
+	cases := []struct {
+		name    string
+		wps     []float64 // length 8: idx 0=pre, idx 7=final
+		homeWon bool
+		wantMin float64
+		wantOK  bool
+	}{
+		{
+			name:    "winner trailed mid-week",
+			wps:     []float64{0.5, 0.4, 0.3, 0.2, 0.4, 0.6, 0.7, 1.0},
+			homeWon: true,
+			wantMin: 0.2,
+			wantOK:  true,
+		},
+		{
+			name:    "winner never trailed",
+			wps:     []float64{0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0},
+			homeWon: true,
+			wantMin: 0.6,
+			wantOK:  true,
+		},
+		{
+			name:    "away winner — invert",
+			wps:     []float64{0.5, 0.6, 0.7, 0.8, 0.4, 0.3, 0.2, 0.0},
+			homeWon: false,
+			wantMin: 0.2, // = 1 - 0.8 (away's lowest mid-week WP)
+			wantOK:  true,
+		},
+	}
+
+	for _, c := range cases {
+		points := make([]WPPoint, len(c.wps))
+		for i, w := range c.wps {
+			points[i] = WPPoint{HomeWP: w}
+		}
+		got, ok := MinWinnerWP(points, c.homeWon)
+		if ok != c.wantOK {
+			t.Errorf("%s: ok mismatch: want %v got %v", c.name, c.wantOK, ok)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if math.Abs(got-c.wantMin) > 1e-9 {
+			t.Errorf("%s: want %.4f, got %.4f", c.name, c.wantMin, got)
+		}
+	}
+}
+
+func TestMinWinnerWPShortCurve(t *testing.T) {
+	if _, ok := MinWinnerWP(nil, true); ok {
+		t.Errorf("nil curve: want ok=false")
+	}
+	short := []WPPoint{{HomeWP: 0.5}, {HomeWP: 0.7}}
+	if _, ok := MinWinnerWP(short, true); ok {
+		t.Errorf("short curve: want ok=false")
+	}
+}

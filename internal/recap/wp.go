@@ -156,3 +156,26 @@ func LeadChangeCount(points []WPPoint) int {
 	}
 	return count
 }
+
+// MinWinnerWP returns the lowest mid-week win probability for the eventual
+// winner. Mid-week is defined as Points[1..6] (Days 1..6) — index 0 (pre-
+// week) and index 7 (final) are excluded.
+//
+// homeWon = true means the eventual winner was the home team; ok=false
+// when the curve is too short to evaluate (need 8 points).
+func MinWinnerWP(points []WPPoint, homeWon bool) (float64, bool) {
+	if len(points) < 8 {
+		return 0, false
+	}
+	min := math.Inf(1)
+	for i := 1; i <= 6; i++ {
+		wp := points[i].HomeWP
+		if !homeWon {
+			wp = 1.0 - wp
+		}
+		if wp < min {
+			min = wp
+		}
+	}
+	return min, true
+}
