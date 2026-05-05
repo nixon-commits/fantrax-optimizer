@@ -249,6 +249,26 @@ func pickStart(starts []PitcherStartLine, less func(a, b *PitcherStartLine) bool
 	return &out
 }
 
+// Whale returns the highest single-day team total across the league × week.
+// Tiebreak: earliest date, then TeamID asc. Returns nil if days is empty.
+func Whale(days []TeamDay) *TeamDay {
+	var best *TeamDay
+	for i := range days {
+		td := &days[i]
+		switch {
+		case best == nil:
+		case td.Pts > best.Pts:
+		case td.Pts == best.Pts && td.Date.Before(best.Date):
+		case td.Pts == best.Pts && td.Date.Equal(best.Date) && td.TeamID < best.TeamID:
+		default:
+			continue
+		}
+		t := *td
+		best = &t
+	}
+	return best
+}
+
 // Award name labels rendered in the season leaderboard. Match the per-week
 // display labels used in template.html for consistency.
 const (

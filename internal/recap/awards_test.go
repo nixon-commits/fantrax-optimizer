@@ -405,6 +405,32 @@ func TestAggregateSeasonAwards_NilRecapInSlice(t *testing.T) {
 	}
 }
 
+func TestWhale(t *testing.T) {
+	d1 := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
+	d2 := time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC)
+
+	days := []TeamDay{
+		{TeamID: "1", TeamName: "A", Date: d1, Pts: 80},
+		{TeamID: "2", TeamName: "B", Date: d1, Pts: 100}, // winner
+		{TeamID: "3", TeamName: "C", Date: d2, Pts: 100}, // ties B but later → loses
+		{TeamID: "4", TeamName: "D", Date: d2, Pts: 90},
+	}
+
+	got := Whale(days)
+	if got == nil || got.TeamID != "2" {
+		t.Fatalf("Whale: want team 2, got %+v", got)
+	}
+	if got.Pts != 100 {
+		t.Errorf("Whale.Pts: want 100, got %.1f", got.Pts)
+	}
+}
+
+func TestWhaleEmpty(t *testing.T) {
+	if got := Whale(nil); got != nil {
+		t.Errorf("Whale(nil): want nil, got %+v", got)
+	}
+}
+
 // Reference time used implicitly by the existing test helpers — keeps the
 // import of "time" consistent with the rest of the file.
 var _ = time.Now
