@@ -1,6 +1,9 @@
 package recap
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 // MostEfficient returns the team with the highest Actual/Optimal ratio. Teams
 // with non-positive optimal points are ignored. Ties broken by lexicographic
@@ -328,6 +331,61 @@ func HeartAttack(curves []MatchupWPCurve, matchups []MatchupResult) *MatchupResu
 		copyM := m
 		best = &copyM
 		bestChanges = c.LeadChanges
+	}
+	return best
+}
+
+// comebackThreshold is the maximum mid-week WP a winner can have hit and
+// still qualify for the Comeback award. 0.30 keeps it meaningful — only
+// genuine "left for dead" comebacks count.
+const comebackThreshold = 0.30
+
+// Comeback returns the eventual winner with the lowest mid-week WP, gated
+// at comebackThreshold. Returns nil if no winner had a mid-week WP below
+// the threshold. Tiebreak: smallest min WP → TeamID asc.
+func Comeback(curves []MatchupWPCurve, matchups []MatchupResult) *MatchupTeamSide {
+	if len(curves) == 0 || len(matchups) == 0 {
+		return nil
+	}
+	mByPair := make(map[string]MatchupResult, len(matchups))
+	for _, m := range matchups {
+		mByPair[canonPair(m.HomeTeamID, m.AwayTeamID)] = m
+	}
+
+	var best *MatchupTeamSide
+	bestMin := math.Inf(1)
+	for _, c := range curves {
+		m, ok := mByPair[canonPair(c.HomeTeamID, c.AwayTeamID)]
+		if !ok || m.IsTie {
+			continue
+		}
+		homeWon := m.WinnerID == m.HomeTeamID
+		minWP, ok := MinWinnerWP(c.Points, homeWon)
+		if !ok || minWP >= comebackThreshold {
+			continue
+		}
+		var side MatchupTeamSide
+		if homeWon {
+			side = MatchupTeamSide{
+				TeamID: m.HomeTeamID, TeamName: m.HomeTeamName, Pts: m.HomePts,
+				OppName: m.AwayTeamName, OppPts: m.AwayPts,
+			}
+		} else {
+			side = MatchupTeamSide{
+				TeamID: m.AwayTeamID, TeamName: m.AwayTeamName, Pts: m.AwayPts,
+				OppName: m.HomeTeamName, OppPts: m.HomePts,
+			}
+		}
+		switch {
+		case best == nil:
+		case minWP < bestMin:
+		case minWP == bestMin && side.TeamID < best.TeamID:
+		default:
+			continue
+		}
+		copySide := side
+		best = &copySide
+		bestMin = minWP
 	}
 	return best
 }

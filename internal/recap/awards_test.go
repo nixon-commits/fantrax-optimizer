@@ -493,6 +493,46 @@ func TestHeartAttackNoLeadChanges(t *testing.T) {
 	}
 }
 
+func TestComeback(t *testing.T) {
+	// Matchup 1: home wins after trailing badly mid-week (eligible).
+	deep := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.4}, {HomeWP: 0.2}, {HomeWP: 0.15},
+		{HomeWP: 0.4}, {HomeWP: 0.6}, {HomeWP: 0.7}, {HomeWP: 1.0},
+	}
+	// Matchup 2: home wins, mild dip but never below 0.30 (ineligible).
+	mild := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.45}, {HomeWP: 0.4}, {HomeWP: 0.5},
+		{HomeWP: 0.6}, {HomeWP: 0.7}, {HomeWP: 0.85}, {HomeWP: 1.0},
+	}
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", Points: deep},
+		{HomeTeamID: "C", AwayTeamID: "D", Points: mild},
+	}
+	matchups := []MatchupResult{
+		mr("A", "B", 200, 180),
+		mr("C", "D", 150, 145),
+	}
+
+	got := Comeback(curves, matchups)
+	if got == nil || got.TeamID != "A" {
+		t.Fatalf("Comeback: want A, got %+v", got)
+	}
+}
+
+func TestComebackNoEligible(t *testing.T) {
+	mild := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.55}, {HomeWP: 0.6}, {HomeWP: 0.65},
+		{HomeWP: 0.7}, {HomeWP: 0.75}, {HomeWP: 0.8}, {HomeWP: 1.0},
+	}
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", Points: mild},
+	}
+	matchups := []MatchupResult{mr("A", "B", 200, 180)}
+	if got := Comeback(curves, matchups); got != nil {
+		t.Errorf("Comeback: want nil (no eligible), got %+v", got)
+	}
+}
+
 // Reference time used implicitly by the existing test helpers — keeps the
 // import of "time" consistent with the rest of the file.
 var _ = time.Now
