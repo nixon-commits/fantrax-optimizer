@@ -3,6 +3,7 @@ package recap
 import (
 	_ "embed"
 	"fmt"
+	"hash/fnv"
 	"html/template"
 	"io"
 	"math"
@@ -32,6 +33,8 @@ var funcMap = template.FuncMap{
 	"curveForMatchup":   curveForMatchup,
 	"truncate":          truncateString,
 	"teamLogo":          teamLogo,
+	"teamInitial":       teamInitial,
+	"teamColor":         teamColor,
 }
 
 // teamLogo returns the avatar URL for one team from the Recap.LogoURLs map.
@@ -43,6 +46,29 @@ func teamLogo(logos map[string]string, id string) string {
 		return ""
 	}
 	return logos[id]
+}
+
+// teamInitial returns a single uppercase letter for use in initial-avatar
+// fallbacks when a team has no custom logo set. Empty input → "?".
+func teamInitial(name string) string {
+	for _, r := range name {
+		if r == ' ' {
+			continue
+		}
+		return strings.ToUpper(string(r))
+	}
+	return "?"
+}
+
+// teamColor returns a CSS HSL color derived deterministically from the
+// team ID, used as the background color for initial-avatar fallbacks.
+// Fixed saturation and lightness so every fallback reads as a consistent
+// "team chip" while hue varies per team.
+func teamColor(id string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(id))
+	hue := int(h.Sum32() % 360)
+	return fmt.Sprintf("hsl(%d, 55%%, 38%%)", hue)
 }
 
 // truncateString returns s if len(s) <= n, otherwise the first (n-1) runes
