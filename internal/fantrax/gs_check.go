@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pmurley/go-fantrax/auth_client"
@@ -93,7 +94,13 @@ func (c *Client) GetScoringPeriodsAndTeams() ([]ScoringPeriod, map[string]string
 	logos := make(map[string]string, len(data.FantasyTeamInfo))
 	for id, info := range data.FantasyTeamInfo {
 		teams[id] = info.Name
-		logos[id] = info.LogoURL512
+		// Filter out Fantrax's stock placeholder icons (helmets, gloves,
+		// jerseys served from /assets/images/icons/...) so the recap only
+		// shows logos that owners actually uploaded. Custom uploads live
+		// under /logos/{code}/tmLogo_{id}.
+		if !strings.Contains(info.LogoURL512, "/assets/images/icons/") {
+			logos[id] = info.LogoURL512
+		}
 	}
 
 	var periods []ScoringPeriod
