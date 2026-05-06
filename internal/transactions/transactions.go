@@ -184,16 +184,33 @@ const (
 	colorReset = "\033[0m"
 )
 
+// nbsp is U+00A0 (non-breaking space). Used for indentation that survives
+// Pushover's whitespace collapsing — regular leading spaces get stripped
+// in push notifications, so the visual structure of the message would
+// flatten without it. Renders as a normal-looking space everywhere else.
+const nbsp = " "
+
 // formatTrades produces a human-readable trade report with the given header.
-// The format is mobile/Pushover-friendly: short lines, no wide horizontal
-// rules, one player rendered as a 2-3 line block instead of a single
-// pipe-separated line that wraps awkwardly on phones.
+// Layout (Pushover-friendly):
+//
+//	Header
+//
+//	Team A ⇄ Team B
+//
+//	Team A receives:
+//	• Player Name (Pos), age N · flags
+//	   #Rank · Value ▲+30d
+//	   X.XX ERA · X.XX WHIP
+//	Total: T (±diff)
+//
+//	Team B receives:
+//	...
 func formatTrades(header string, trades []Trade, color bool) string {
 	var b strings.Builder
 	b.WriteString(header + "\n")
-	for i, t := range trades {
+	indent := strings.Repeat(nbsp, 3)
+	for _, t := range trades {
 		b.WriteString("\n")
-		_ = i
 		fmt.Fprintf(&b, "%s ⇄ %s\n", t.Sides[0].TeamName, t.Sides[1].TeamName)
 		for si, side := range t.Sides {
 			other := t.Sides[1-si]
@@ -208,9 +225,10 @@ func formatTrades(header string, trades []Trade, color bool) string {
 				}
 			}
 
-			fmt.Fprintf(&b, "  %s receives:\n", side.TeamName)
+			b.WriteString("\n")
+			fmt.Fprintf(&b, "%s receives:\n", side.TeamName)
 			for _, p := range side.Players {
-				formatPlayer(&b, p, "    ", color)
+				formatPlayer(&b, p, indent, color)
 			}
 			diffSign := "+"
 			absDiff := diff
@@ -223,30 +241,33 @@ func formatTrades(header string, trades []Trade, color bool) string {
 				reset = colorReset
 			}
 			if diff != 0 {
-				fmt.Fprintf(&b, "    Total: %s%s (%s%s)%s\n", sideClr, formatValue(side.Total), diffSign, formatValue(absDiff), reset)
+				fmt.Fprintf(&b, "Total: %s%s (%s%s)%s\n", sideClr, formatValue(side.Total), diffSign, formatValue(absDiff), reset)
 			} else {
-				fmt.Fprintf(&b, "    Total: %s\n", formatValue(side.Total))
+				fmt.Fprintf(&b, "Total: %s\n", formatValue(side.Total))
 			}
 		}
 	}
 	return b.String()
 }
 
-// formatPlayer writes a multi-line player block prefixed by indent. Layout:
+// formatPlayer writes a multi-line player block. The first line is flush
+// left with a bullet; the parameter lines (rank/value, stats) are indented
+// using the given prefix so they visually nest under the player. Layout:
 //
-//	indent• Name (Pos), age N · flag1, flag2
-//	indent  #Rank · Value ▲+30d
-//	indent  X.XX ERA · X.XX WHIP   (or .OPS, omitted when no stats)
+//   - Name (Pos), age N · flag1, flag2
+//     #Rank · Value ▲+30d
+//     X.XX ERA · X.XX WHIP   (or .OPS, omitted when no stats)
 //
-// Unranked players collapse to a single line: `indent• Name (Pos) — unranked`.
+// Unranked players collapse to a single line: `• Name (Pos) — unranked`.
+// indent should be NBSP-based so Pushover preserves it.
 func formatPlayer(b *strings.Builder, p TradePlayer, indent string, color bool) {
 	if !p.Ranked {
-		fmt.Fprintf(b, "%s• %s (%s) — unranked\n", indent, p.Name, p.Position)
+		fmt.Fprintf(b, "• %s (%s) — unranked\n", p.Name, p.Position)
 		return
 	}
 
-	// Line 1: name, position, age, optional flags
-	fmt.Fprintf(b, "%s• %s (%s), age %d", indent, p.Name, p.Position, int(math.Floor(p.Age)))
+	// Line 1: bullet, name, position, age, optional flags
+	fmt.Fprintf(b, "• %s (%s), age %d", p.Name, p.Position, int(math.Floor(p.Age)))
 	var flags []string
 	if p.Prospect {
 		flags = append(flags, "Prospect")
@@ -262,18 +283,17 @@ func formatPlayer(b *strings.Builder, p TradePlayer, indent string, color bool) 
 	}
 	b.WriteString("\n")
 
-	// Line 2: rank · value · 30d trend
-	child := indent + "  "
-	fmt.Fprintf(b, "%s#%d · %s ", child, p.Rank, formatValue(p.Value))
+	// Line 2: rank · value · 30d trend, indented under bullet
+	fmt.Fprintf(b, "%s#%d · %s ", indent, p.Rank, formatValue(p.Value))
 	formatTrend(b, p.ValueChange30D, color)
 	b.WriteString("\n")
 
-	// Line 3 (only if stats present): performance line
+	// Line 3 (only if stats present): performance line, same indent
 	if p.HasStats {
 		if p.IsPitcher {
-			fmt.Fprintf(b, "%s%.2f ERA · %.2f WHIP\n", child, p.ERA, p.WHIP)
+			fmt.Fprintf(b, "%s%.2f ERA · %.2f WHIP\n", indent, p.ERA, p.WHIP)
 		} else {
-			fmt.Fprintf(b, "%s%s OPS\n", child, formatOPS(p.OPS))
+			fmt.Fprintf(b, "%s%s OPS\n", indent, formatOPS(p.OPS))
 		}
 	}
 }
