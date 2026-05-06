@@ -498,8 +498,7 @@ func TestAggregateSeasonAwards_NewCategories(t *testing.T) {
 		t.Fatalf("snaps: want 1 non-nil, got %+v", snaps)
 	}
 	want := map[string]string{
-		AwardHeartAttack: "1",
-		AwardComeback:    "1",
+		AwardComeback: "1",
 	}
 	got := map[string]string{}
 	for _, cat := range snaps[0].Categories {
@@ -511,6 +510,10 @@ func TestAggregateSeasonAwards_NewCategories(t *testing.T) {
 		if got[k] != v {
 			t.Errorf("%s: want team %q, got %q", k, v, got[k])
 		}
+	}
+	// Heart Attack is intentionally NOT in the season leaderboard.
+	if _, present := got[AwardHeartAttack]; present {
+		t.Errorf("Heart Attack should not appear in season leaderboard, got team %q", got[AwardHeartAttack])
 	}
 }
 

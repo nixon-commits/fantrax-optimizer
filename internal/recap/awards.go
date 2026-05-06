@@ -372,6 +372,11 @@ const SeasonShellingsLimit = 5
 
 // awardOrder controls the rendering order of categories in the season
 // leaderboard. Mirrors the per-week awards section in template.html.
+// awardOrder controls which categories appear in the season cumulative
+// leaderboard. Heart Attack is intentionally excluded — it doubles as the
+// Game of the Week selector at the top of each week's page, so cumulative
+// counts would be redundant. The per-week Heart Attack badge in Matchup
+// Results is unaffected (it reads from Awards.HeartAttack directly).
 var awardOrder = []string{
 	AwardMostEfficient,
 	AwardLeastEfficient,
@@ -383,7 +388,6 @@ var awardOrder = []string{
 	AwardLowestPtsWin,
 	AwardBestStart,
 	AwardWorstStart,
-	AwardHeartAttack,
 	AwardComeback,
 }
 
