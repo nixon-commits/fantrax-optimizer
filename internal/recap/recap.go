@@ -172,21 +172,29 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 		TopPitchers:      TopPitchers(allActive, opts.TopPlayers),
 	}
 
+	// Season-to-date team means feed the WP simulation so the curve isn't
+	// look-ahead biased by the very week we're plotting. Fall back to the
+	// within-week mean per-team when season data is unavailable (Week 1, or
+	// per-team fetch error — see fetchSeasonMeans).
+	asOf := opts.WeekStart.AddDate(0, 0, -1)
+	seasonMeans := fetchSeasonMeans(ft, teamMap, seasonStart, asOf, opts.CacheDir, opts.CacheTTL, opts.Concurrency)
+
 	var curves []MatchupWPCurve
 	if sigma > 0 {
-		// Each team's expected daily FPts is its within-week average. This
-		// honors the spec's "season-to-date" intent at the simplest possible
-		// data cost (no extra fetches); the look-ahead bias is tolerable for
-		// a post-mortem narrative chart. See spec §"Future extensions" for
-		// season-wide upgrade.
 		for _, m := range matchups {
 			h := teamDailyByID[m.HomeTeamID]
 			a := teamDailyByID[m.AwayTeamID]
 			if len(h.Actuals) != 7 || len(a.Actuals) != 7 {
 				continue
 			}
-			hMean := mean(h.Actuals)
-			aMean := mean(a.Actuals)
+			hMean := seasonMeans[m.HomeTeamID]
+			if hMean == 0 {
+				hMean = mean(h.Actuals)
+			}
+			aMean := seasonMeans[m.AwayTeamID]
+			if aMean == 0 {
+				aMean = mean(a.Actuals)
+			}
 			curve := ComputeWPCurve(WPInputs{
 				HomeTeamID:    m.HomeTeamID,
 				AwayTeamID:    m.AwayTeamID,
@@ -528,4 +536,89 @@ func mean(xs []float64) float64 {
 		s += x
 	}
 	return s / float64(len(xs))
+}
+
+// computeSeasonMeanFromDays returns (FPts-per-day, days-played) for one
+// team across the supplied DayRoster slice. Active-starter definition
+// matches extractActivePlayerLines / buildTeamDays: a player counts when
+// they were started AND either scored points or had a game. A day counts
+// toward the denominator only if at least one player on that day qualified.
+func computeSeasonMeanFromDays(days []fantrax.DayRoster) (float64, int) {
+	var totalFPts float64
+	playedDays := 0
+	for _, d := range days {
+		var dayFPts float64
+		hasActivity := false
+		for _, p := range d.Players {
+			if !p.Active {
+				continue
+			}
+			if p.FPts == 0 && !p.HadGame {
+				continue
+			}
+			dayFPts += p.FPts
+			hasActivity = true
+		}
+		if !hasActivity {
+			continue
+		}
+		totalFPts += dayFPts
+		playedDays++
+	}
+	if playedDays == 0 {
+		return 0, 0
+	}
+	return totalFPts / float64(playedDays), playedDays
+}
+
+// seasonToDateTeamMean fetches one team's daily snapshots from seasonStart
+// through asOf (inclusive) and returns the FPts-per-day. Returns (0, 0, nil)
+// when asOf < seasonStart (i.e., no history yet — caller falls back to the
+// within-week mean).
+func seasonToDateTeamMean(ft *fantrax.Client, teamID string, seasonStart, asOf time.Time, cacheDir string, cacheTTL time.Duration) (float64, int, error) {
+	if asOf.Before(seasonStart) {
+		return 0, 0, nil
+	}
+	days, err := ft.DailyFantasyPoints(teamID, seasonStart, asOf, seasonStart, cacheDir, cacheTTL)
+	if err != nil {
+		return 0, 0, err
+	}
+	mean, played := computeSeasonMeanFromDays(days)
+	return mean, played, nil
+}
+
+// fetchSeasonMeans returns a teamID → FPts-per-day map by fetching every
+// team's season-to-date data in parallel (capped by concurrency). Per-team
+// errors are logged to stderr and surfaced as 0.0 in the output map; the
+// orchestrator falls back to the within-week mean for those teams.
+//
+// When asOf precedes seasonStart (Week 1), returns nil so all teams fall
+// back without making any HTTP calls.
+func fetchSeasonMeans(ft *fantrax.Client, teamMap map[string]string, seasonStart, asOf time.Time, cacheDir string, cacheTTL time.Duration, concurrency int) map[string]float64 {
+	if asOf.Before(seasonStart) {
+		return nil
+	}
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+	out := make(map[string]float64, len(teamMap))
+	var mu sync.Mutex
+	g := new(errgroup.Group)
+	g.SetLimit(concurrency)
+	for teamID, teamName := range teamMap {
+		teamID, teamName := teamID, teamName
+		g.Go(func() error {
+			m, _, err := seasonToDateTeamMean(ft, teamID, seasonStart, asOf, cacheDir, cacheTTL)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: season-to-date mean for %s (%s): %v\n", teamName, teamID, err)
+				return nil
+			}
+			mu.Lock()
+			out[teamID] = m
+			mu.Unlock()
+			return nil
+		})
+	}
+	_ = g.Wait()
+	return out
 }
