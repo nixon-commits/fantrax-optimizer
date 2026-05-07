@@ -2,7 +2,7 @@ name: Weekly Recap
 
 on:
   schedule:
-    - cron: '0 15 * * *'   # 11am ET — after lineup/gs-check have run
+    - cron: '0 11 * * 1'   # 7am ET Monday — after Sunday's late games settle
   workflow_dispatch:
 
 permissions:
