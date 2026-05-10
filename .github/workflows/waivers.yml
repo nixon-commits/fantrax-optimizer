@@ -13,11 +13,20 @@ on:
         description: 'Max number of candidates to surface'
         type: string
         default: '15'
+      platform:
+        description: 'Fantasy provider'
+        type: choice
+        default: 'fantrax'
+        options:
+          - fantrax
+          - espn
 
 jobs:
-  audit-waivers:
+  audit-waivers-fantrax:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Cron always runs Fantrax. Dispatch runs Fantrax only when platform=fantrax (or unset).
+    if: github.event_name == 'schedule' || (github.event.inputs.platform || 'fantrax') == 'fantrax'
 
     steps:
       - uses: actions/checkout@v5
@@ -38,7 +47,7 @@ jobs:
             waivers-
             projections-
 
-      - name: Audit waivers
+      - name: Audit waivers (Fantrax)
         run: |
           FLAGS=""
           DRY_RUN="${{ github.event.inputs.dry_run }}"
@@ -51,11 +60,58 @@ jobs:
           fi
           go run . waivers $FLAGS
         env:
+          PLATFORM: fantrax
           FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
           FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
           FANTRAX_LEAGUE_ID: ${{ secrets.FANTRAX_LEAGUE_ID }}
           FANTRAX_TEAM_ID: ${{ secrets.FANTRAX_TEAM_ID }}
           FANTRAX_IL_SLOTS: ${{ secrets.FANTRAX_IL_SLOTS }}
           FANTRAX_MINORS_SLOTS: ${{ secrets.FANTRAX_MINORS_SLOTS }}
+          PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
+          PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}
+
+  audit-waivers-espn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Manual dispatch only — cron stays Fantrax until ESPN MVP is proven in production.
+    # Set ESPN_LEAGUE_ID, ESPN_TEAM_ID, ESPN_SWID, ESPN_S2 secrets before enabling.
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'espn'
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: waivers-espn-${{ github.run_id }}
+          restore-keys: |
+            waivers-espn-
+            waivers-
+            projections-
+
+      - name: Audit waivers (ESPN)
+        run: |
+          FLAGS=""
+          DRY_RUN="${{ github.event.inputs.dry_run }}"
+          if [ "${DRY_RUN:-false}" = "true" ]; then
+            FLAGS="$FLAGS --dry-run"
+          fi
+          TOP="${{ github.event.inputs.top }}"
+          if [ -n "${TOP:-}" ]; then
+            FLAGS="$FLAGS --top $TOP"
+          fi
+          go run . waivers $FLAGS
+        env:
+          PLATFORM: espn
+          ESPN_LEAGUE_ID: ${{ secrets.ESPN_LEAGUE_ID }}
+          ESPN_TEAM_ID: ${{ secrets.ESPN_TEAM_ID }}
+          ESPN_SWID: ${{ secrets.ESPN_SWID }}
+          ESPN_S2: ${{ secrets.ESPN_S2 }}
           PUSHOVER_USER_KEY: ${{ secrets.PUSHOVER_USER_KEY }}
           PUSHOVER_API_TOKEN: ${{ secrets.PUSHOVER_APP_TOKEN }}

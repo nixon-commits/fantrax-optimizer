@@ -4,9 +4,16 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joho/godotenv"
+)
+
+// Platform identifies the fantasy provider for the current invocation.
+const (
+	PlatformFantrax = "fantrax"
+	PlatformESPN    = "espn"
 )
 
 // envIntWithFallback reads primary env var first, then falls back to deprecated.
@@ -27,10 +34,24 @@ func envIntWithFallback(primary, deprecated string, fallback int) int {
 }
 
 type Config struct {
-	Username    string
-	Password    string
-	LeagueID    string
-	TeamID      string
+	// Platform selects the fantasy provider. Defaults to "fantrax".
+	// Only the waivers command currently honors PLATFORM=espn; every other
+	// command rejects non-fantrax platforms via initApp.
+	Platform string
+
+	// Fantrax credentials — required when Platform == "fantrax".
+	Username string
+	Password string
+	LeagueID string
+	TeamID   string
+
+	// ESPN credentials — required when Platform == "espn".
+	ESPNLeagueID string
+	ESPNTeamID   int
+	ESPNYear     int    // 0 = current calendar year
+	ESPNSWID     string // SWID cookie value (with curly braces)
+	ESPNS2       string // espn_s2 cookie value
+
 	DryRun      bool
 	Dates       []time.Time
 	ILSlots     int
@@ -55,11 +76,24 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 	// Load .env if present (local dev); ignore error if missing (GHA uses env directly)
 	_ = godotenv.Load()
 
+	platform := strings.ToLower(strings.TrimSpace(os.Getenv("PLATFORM")))
+	if platform == "" {
+		platform = PlatformFantrax
+	}
+
 	cfg := &Config{
-		Username:    os.Getenv("FANTRAX_USERNAME"),
-		Password:    os.Getenv("FANTRAX_PASSWORD"),
-		LeagueID:    os.Getenv("FANTRAX_LEAGUE_ID"),
-		TeamID:      os.Getenv("FANTRAX_TEAM_ID"),
+		Platform: platform,
+		Username: os.Getenv("FANTRAX_USERNAME"),
+		Password: os.Getenv("FANTRAX_PASSWORD"),
+		LeagueID: os.Getenv("FANTRAX_LEAGUE_ID"),
+		TeamID:   os.Getenv("FANTRAX_TEAM_ID"),
+
+		ESPNLeagueID: os.Getenv("ESPN_LEAGUE_ID"),
+		ESPNTeamID:   envInt("ESPN_TEAM_ID", 0),
+		ESPNYear:     envInt("ESPN_YEAR", 0),
+		ESPNSWID:     os.Getenv("ESPN_SWID"),
+		ESPNS2:       os.Getenv("ESPN_S2"),
+
 		DryRun:      dryRun,
 		Dates:       dates,
 		ILSlots:     envInt("FANTRAX_IL_SLOTS", 0),
@@ -78,19 +112,41 @@ func Load(dryRun bool, dates []time.Time) (*Config, error) {
 		PushoverAPIToken: os.Getenv("PUSHOVER_API_TOKEN"),
 	}
 
-	var missing []string
-	for name, val := range map[string]string{
-		"FANTRAX_USERNAME":  cfg.Username,
-		"FANTRAX_PASSWORD":  cfg.Password,
-		"FANTRAX_LEAGUE_ID": cfg.LeagueID,
-		"FANTRAX_TEAM_ID":   cfg.TeamID,
-	} {
-		if val == "" {
-			missing = append(missing, name)
+	switch cfg.Platform {
+	case PlatformFantrax:
+		var missing []string
+		for name, val := range map[string]string{
+			"FANTRAX_USERNAME":  cfg.Username,
+			"FANTRAX_PASSWORD":  cfg.Password,
+			"FANTRAX_LEAGUE_ID": cfg.LeagueID,
+			"FANTRAX_TEAM_ID":   cfg.TeamID,
+		} {
+			if val == "" {
+				missing = append(missing, name)
+			}
 		}
-	}
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("missing required env vars: %v", missing)
+		if len(missing) > 0 {
+			return nil, fmt.Errorf("missing required env vars: %v", missing)
+		}
+	case PlatformESPN:
+		var missing []string
+		for name, val := range map[string]string{
+			"ESPN_LEAGUE_ID": cfg.ESPNLeagueID,
+			"ESPN_SWID":      cfg.ESPNSWID,
+			"ESPN_S2":        cfg.ESPNS2,
+		} {
+			if val == "" {
+				missing = append(missing, name)
+			}
+		}
+		if cfg.ESPNTeamID == 0 {
+			missing = append(missing, "ESPN_TEAM_ID")
+		}
+		if len(missing) > 0 {
+			return nil, fmt.Errorf("missing required env vars for PLATFORM=espn: %v", missing)
+		}
+	default:
+		return nil, fmt.Errorf("unsupported PLATFORM=%q (expected fantrax or espn)", cfg.Platform)
 	}
 
 	return cfg, nil

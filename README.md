@@ -1,6 +1,8 @@
 # RosterBot
 
-Fantasy baseball roster automation for Fantrax head-to-head points leagues. Optimizes daily lineups, monitors minor league prospects, and tracks league-wide game start violations.
+Fantasy baseball roster automation for daily-lock head-to-head points leagues. Optimizes daily lineups, monitors minor league prospects, and tracks league-wide game start violations.
+
+**Supported platforms:** Fantrax (full suite) and ESPN Fantasy (waivers command only — read-only MVP).
 
 ## What It Does
 
@@ -72,10 +74,14 @@ rosterbot prospects --dry-run
 # Check recent trades with HKB valuations
 rosterbot transactions --dry-run
 
-# Identify Statcast-driven waiver wire pickups
+# Identify Statcast-driven waiver wire pickups (Fantrax)
 rosterbot waivers --dry-run
-rosterbot waivers --dry-run --top 25            # bigger list
-rosterbot waivers --dry-run --positions OF,SP   # filter to specific slots
+rosterbot waivers --dry-run --top 25                     # bigger list
+rosterbot waivers --dry-run --positions OF,SP            # filter to specific slots
+rosterbot waivers --dry-run --projections steamer        # alternate projection system (default: depthcharts)
+
+# Same command, ESPN league (set PLATFORM and ESPN_* env vars first — see "ESPN setup")
+PLATFORM=espn rosterbot waivers --dry-run
 
 # Check GS violations
 rosterbot gs-check --dry-run --force
@@ -145,6 +151,28 @@ Matchup adjustments (opposing pitcher FIP + platoon splits) are layered on top.
 | `PUSHOVER_GROUP_KEY` | — | Pushover group key for GS violation alerts |
 | `PUSHOVER_API_TOKEN` | — | Pushover API token for notifications |
 | `BACKTEST_ARCHIVE` | — | Set to `1` to archive every `optimize` run's projections to `.backtest/snapshots/` for later grading (same as `--archive-projections`) |
+| `PLATFORM` | `fantrax` | Selects fantasy provider for the `waivers` command. Set to `espn` to use ESPN Fantasy. Other commands always use Fantrax. |
+
+## ESPN Setup
+
+The `waivers` command supports ESPN H2H Points leagues (read-only, daily-lock cadence). Other commands stay Fantrax-only for now.
+
+To run waivers against an ESPN league:
+
+1. Log in to your league at `fantasy.espn.com` in Chrome.
+2. Open DevTools → Application → Cookies → `https://fantasy.espn.com`.
+3. Copy the values of `SWID` (keep the curly braces) and `espn_s2`.
+4. Add to `.env`:
+   ```
+   PLATFORM=espn
+   ESPN_LEAGUE_ID=12345
+   ESPN_TEAM_ID=7
+   ESPN_SWID={ABCDEF12-...}
+   ESPN_S2=AE...long-cookie-value
+   ```
+5. Run `rosterbot waivers --dry-run`. Output mirrors the Fantrax waivers report — Statcast signals, top-N upgrade candidates, drop suggestions.
+
+The cookies are static across browser sessions but rotate when you sign out everywhere; refresh them if ESPN starts returning 401s.
 
 ## Automation
 

@@ -51,10 +51,18 @@ func todayET() time.Time {
 }
 
 // initApp loads configuration and creates a Fantrax client.
+//
+// The Fantrax-only commands all use this helper. PLATFORM=espn is rejected
+// here because only the waivers command currently has an ESPN adapter; every
+// other consumer (optimize/recap/backtest/prospects/transactions/gscheck)
+// still depends on Fantrax-specific surface (period semantics, models.*, etc.).
 func initApp(dates []time.Time) (*config.Config, *fantrax.Client, error) {
 	cfg, err := config.Load(dryRun, dates)
 	if err != nil {
 		return nil, nil, fmt.Errorf("config: %w", err)
+	}
+	if cfg.Platform != config.PlatformFantrax {
+		return nil, nil, fmt.Errorf("PLATFORM=%s is not supported by this command yet — only `waivers` works with ESPN", cfg.Platform)
 	}
 	ft, err := fantrax.NewClient(cfg.LeagueID, cfg.TeamID)
 	if err != nil {

@@ -4,10 +4,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/nixon-commits/rosterbot/internal/projections"
-	"github.com/pmurley/go-fantrax/auth_client"
-	"github.com/pmurley/go-fantrax/models"
 )
 
 // mockBatSrc returns canned hitter projections by normalized name.
@@ -26,87 +23,71 @@ func (m mockPitSrc) GetPitcherProjection(name, _ string) (*projections.PitcherPr
 	return p, ok
 }
 
-func TestFilterFreeAgents(t *testing.T) {
-	pool := []models.PoolPlayer{
-		{Name: "FA Hitter", FantasyStatus: "FA", Positions: []string{auth_client.PosOF}, MultiPositions: "OF"},
-		{Name: "FA Pitcher", FantasyStatus: "FA", Positions: []string{auth_client.PosSP}, MultiPositions: "SP"},
-		{Name: "Waiver Player", FantasyStatus: "W3", Positions: []string{auth_client.Pos1B}, MultiPositions: "1B"},
-		{Name: "Owned", FantasyStatus: "TEAM1", Positions: []string{auth_client.PosOF}, MultiPositions: "OF"},
-		{Name: "Minors FA", FantasyStatus: "FA", MinorsEligible: true, Positions: []string{auth_client.PosOF}, MultiPositions: "OF"},
-		{Name: "Empty Status", FantasyStatus: "", Positions: []string{auth_client.PosOF}, MultiPositions: "OF"},
+func TestFilterByPosition(t *testing.T) {
+	pool := []FreeAgent{
+		{Name: "OF Player", Positions: []string{"OF"}},
+		{Name: "1B Player", Positions: []string{"1B"}},
+		{Name: "SP Player", Positions: []string{"SP"}},
+		{Name: "Multi", Positions: []string{"1B", "3B"}},
 	}
-
-	got := filterFreeAgents(pool, nil)
-	wantNames := map[string]bool{
-		"FA Hitter":     true,
-		"FA Pitcher":    true,
-		"Waiver Player": true,
-		"Empty Status":  true,
-	}
-	if len(got) != len(wantNames) {
-		t.Fatalf("filterFreeAgents: want %d, got %d (%v)", len(wantNames), len(got), got)
-	}
-	for _, p := range got {
-		if !wantNames[p.Name] {
-			t.Errorf("unexpected FA: %s", p.Name)
-		}
-	}
-}
-
-func TestFilterFreeAgents_PositionFilter(t *testing.T) {
-	pool := []models.PoolPlayer{
-		{Name: "OF Player", FantasyStatus: "FA", Positions: []string{auth_client.PosOF}, MultiPositions: "OF"},
-		{Name: "1B Player", FantasyStatus: "FA", Positions: []string{auth_client.Pos1B}, MultiPositions: "1B"},
-		{Name: "SP Player", FantasyStatus: "FA", Positions: []string{auth_client.PosSP}, MultiPositions: "SP"},
-	}
-
-	got := filterFreeAgents(pool, []string{"OF", "SP"})
+	got := filterByPosition(pool, []string{"OF", "SP"})
 	if len(got) != 2 {
-		t.Fatalf("position filter: want 2, got %d", len(got))
+		t.Fatalf("position filter: want 2, got %d (%v)", len(got), got)
+	}
+	got2 := filterByPosition(pool, []string{"3b"}) // case-insensitive
+	if len(got2) != 1 || got2[0].Name != "Multi" {
+		t.Fatalf("case-insensitive filter: got %v", got2)
+	}
+	got3 := filterByPosition(pool, nil)
+	if len(got3) != len(pool) {
+		t.Fatalf("nil filter should return all, got %d", len(got3))
 	}
 }
 
 func TestIsSPEligible(t *testing.T) {
-	if !isSPEligible([]string{auth_client.PosSP}) {
+	if !isSPEligible([]string{"SP"}) {
 		t.Error("SP-only should be SP eligible")
 	}
-	if !isSPEligible([]string{auth_client.PosSP, auth_client.PosRP}) {
+	if !isSPEligible([]string{"SP", "RP"}) {
 		t.Error("SP+RP should be SP eligible")
 	}
-	if isSPEligible([]string{auth_client.PosRP}) {
+	if isSPEligible([]string{"RP"}) {
 		t.Error("RP-only should not be SP eligible")
 	}
-	if isSPEligible([]string{auth_client.PosOF}) {
+	if isSPEligible([]string{"OF"}) {
 		t.Error("OF should not be SP eligible")
 	}
 }
 
 func TestIsHitterEligible(t *testing.T) {
-	if !isHitterEligible([]string{auth_client.PosOF}) {
+	if !isHitterEligible([]string{"OF"}) {
 		t.Error("OF should be hitter eligible")
 	}
-	if !isHitterEligible([]string{auth_client.Pos1B, auth_client.PosUtil}) {
-		t.Error("1B+UT should be hitter eligible")
+	if !isHitterEligible([]string{"1B", "DH"}) {
+		t.Error("1B+DH should be hitter eligible")
 	}
-	if isHitterEligible([]string{auth_client.PosSP}) {
+	if isHitterEligible([]string{"SP"}) {
 		t.Error("SP-only should not be hitter eligible")
 	}
-	if isHitterEligible([]string{auth_client.PosSP, auth_client.PosRP}) {
+	if isHitterEligible([]string{"SP", "RP"}) {
 		t.Error("SP+RP should not be hitter eligible")
 	}
 }
 
-func TestStripHTMLTags(t *testing.T) {
-	if got := stripHTMLTags("<b>OF</b>,1B"); got != "OF,1B" {
-		t.Errorf("stripHTMLTags: got %q", got)
+func TestDisplayPosition_FallbackToPositions(t *testing.T) {
+	if got := displayPosition(FreeAgent{Display: "1B,3B"}); got != "1B,3B" {
+		t.Errorf("Display preferred when set, got %q", got)
+	}
+	if got := displayPosition(FreeAgent{Positions: []string{"OF", "1B"}}); got != "OF,1B" {
+		t.Errorf("fallback joins Positions, got %q", got)
 	}
 }
 
 func TestBuildCandidates_SortAndIdempotent(t *testing.T) {
-	freeAgents := []models.PoolPlayer{
-		{Name: "Soto Juan", FantasyStatus: "FA", Positions: []string{auth_client.PosOF}, MultiPositions: "OF", MLBTeamShortName: "NYY"},
-		{Name: "Strider Spencer", FantasyStatus: "FA", Positions: []string{auth_client.PosSP}, MultiPositions: "SP", MLBTeamShortName: "ATL"},
-		{Name: "Buylow Pitcher", FantasyStatus: "FA", Positions: []string{auth_client.PosSP}, MultiPositions: "SP", MLBTeamShortName: "TEX"},
+	freeAgents := []FreeAgent{
+		{Name: "Soto Juan", Positions: []string{"OF"}, MLBTeam: "NYY"},
+		{Name: "Strider Spencer", Positions: []string{"SP"}, MLBTeam: "ATL"},
+		{Name: "Buylow Pitcher", Positions: []string{"SP"}, MLBTeam: "TEX"},
 	}
 	mlbamByName := map[string]int{
 		projections.NormalizeName("Soto Juan"):       665742,
@@ -143,10 +124,10 @@ func TestBuildCandidates_SortAndIdempotent(t *testing.T) {
 			G: 30, GS: 30, IP: 175, K: 180, BBA: 55, ER: 75, W: 12, L: 10, QS: 15, HRA: 22,
 		},
 	}
-	hitterScoring := fantrax.ScoringWeights{
+	hitterScoring := map[string]float64{
 		"1B": 1, "2B": 2, "3B": 3, "HR": 4, "RBI": 1, "R": 1, "BB": 1, "SB": 2, "SO": -0.5, "HBP": 1,
 	}
-	pitcherScoring := fantrax.ScoringWeights{
+	pitcherScoring := map[string]float64{
 		"K": 2, "W": 5, "QS": 4, "ER": -1, "IP": 1, "BB": -0.5, "H": -0.5, "HR": -2,
 	}
 
@@ -155,10 +136,7 @@ func TestBuildCandidates_SortAndIdempotent(t *testing.T) {
 		t.Fatalf("want 3 candidates, got %d", len(got))
 	}
 
-	// Run twice — output must be byte-identical except for floating-point
-	// summation noise inside ExpectedPts*FromProj (which iterates a Go map).
-	// What matters for idempotency is the same MLBAM IDs in the same order
-	// with ProjectedFPG within a tiny epsilon.
+	// Idempotency: same inputs → same MLBAM IDs in the same order, same FPG.
 	got2 := buildCandidates(freeAgents, mlbamByName, savant, bat, pit, hitterScoring, pitcherScoring, rosteredPlayer{}, rosteredPlayer{}, DefaultThresholds())
 	if len(got) != len(got2) {
 		t.Fatalf("idempotency: lengths differ %d vs %d", len(got), len(got2))
@@ -174,19 +152,19 @@ func TestBuildCandidates_SortAndIdempotent(t *testing.T) {
 }
 
 func TestBuildCandidates_SkipsWithoutMLBAMID(t *testing.T) {
-	freeAgents := []models.PoolPlayer{
-		{Name: "Unknown Player", FantasyStatus: "FA", Positions: []string{auth_client.PosOF}, MultiPositions: "OF"},
+	freeAgents := []FreeAgent{
+		{Name: "Unknown Player", Positions: []string{"OF"}},
 	}
 	got := buildCandidates(freeAgents, map[string]int{}, &SavantBundle{}, mockBatSrc{}, mockPitSrc{},
-		fantrax.ScoringWeights{}, fantrax.ScoringWeights{}, rosteredPlayer{}, rosteredPlayer{}, DefaultThresholds())
+		map[string]float64{}, map[string]float64{}, rosteredPlayer{}, rosteredPlayer{}, DefaultThresholds())
 	if len(got) != 0 {
 		t.Fatalf("want 0 candidates without MLBAM ID, got %d", len(got))
 	}
 }
 
 func TestBuildCandidates_SkipsWithoutProjection(t *testing.T) {
-	freeAgents := []models.PoolPlayer{
-		{Name: "Has Signal", FantasyStatus: "FA", Positions: []string{auth_client.PosOF}, MultiPositions: "OF"},
+	freeAgents := []FreeAgent{
+		{Name: "Has Signal", Positions: []string{"OF"}},
 	}
 	mlbamByName := map[string]int{projections.NormalizeName("Has Signal"): 1}
 	savant := &SavantBundle{
@@ -197,16 +175,14 @@ func TestBuildCandidates_SkipsWithoutProjection(t *testing.T) {
 			1: {MLBAMID: 1, Barrel: 12.0, HardHit: 46.0},
 		},
 	}
-	// No projection in mockBatSrc → candidate dropped.
 	got := buildCandidates(freeAgents, mlbamByName, savant, mockBatSrc{}, mockPitSrc{},
-		fantrax.ScoringWeights{}, fantrax.ScoringWeights{}, rosteredPlayer{}, rosteredPlayer{}, DefaultThresholds())
+		map[string]float64{}, map[string]float64{}, rosteredPlayer{}, rosteredPlayer{}, DefaultThresholds())
 	if len(got) != 0 {
 		t.Fatalf("want 0 candidates without projection, got %d", len(got))
 	}
 }
 
 func TestPushoverFitsLimit(t *testing.T) {
-	// Force 15 candidates with long-ish names; ensure formatPushover stays under 1024.
 	r := Report{Total: 15}
 	for i := 0; i < 15; i++ {
 		r.Top = append(r.Top, Candidate{
@@ -230,11 +206,9 @@ func TestPushoverFitsLimit(t *testing.T) {
 }
 
 func TestBuildCandidates_GapFilter(t *testing.T) {
-	// Two FAs both pass the BUY-LOW signal. One projects above the drop, one below.
-	// The one below the drop must be filtered out.
-	freeAgents := []models.PoolPlayer{
-		{Name: "Better FA", FantasyStatus: "FA", Positions: []string{auth_client.PosOF}, MultiPositions: "OF", MLBTeamShortName: "BOS"},
-		{Name: "Worse FA", FantasyStatus: "FA", Positions: []string{auth_client.PosOF}, MultiPositions: "OF", MLBTeamShortName: "PIT"},
+	freeAgents := []FreeAgent{
+		{Name: "Better FA", Positions: []string{"OF"}, MLBTeam: "BOS"},
+		{Name: "Worse FA", Positions: []string{"OF"}, MLBTeam: "PIT"},
 	}
 	mlbamByName := map[string]int{
 		projections.NormalizeName("Better FA"): 100,
@@ -251,16 +225,14 @@ func TestBuildCandidates_GapFilter(t *testing.T) {
 		},
 	}
 	bat := mockBatSrc{
-		// Better FA projects ~5 FPG, Worse FA projects ~2 FPG.
 		projections.NormalizeName("Better FA"): {G: 100, H: 100, HR: 25, RBI: 80, R: 80, BB: 60, SO: 100},
 		projections.NormalizeName("Worse FA"):  {G: 100, H: 50, HR: 5, RBI: 30, R: 30, BB: 25, SO: 80},
 	}
-	hitterScoring := fantrax.ScoringWeights{"1B": 1, "2B": 2, "HR": 4, "RBI": 1, "R": 1, "BB": 1, "SO": -0.5}
+	hitterScoring := map[string]float64{"1B": 1, "2B": 2, "HR": 4, "RBI": 1, "R": 1, "BB": 1, "SO": -0.5}
 
-	// Drop FPG = 3.0 — Better FA beats it, Worse FA doesn't.
 	drop := rosteredPlayer{Name: "Bench Player", FPG: 3.0}
 	got := buildCandidates(freeAgents, mlbamByName, savant, bat, mockPitSrc{},
-		hitterScoring, fantrax.ScoringWeights{}, drop, rosteredPlayer{}, DefaultThresholds())
+		hitterScoring, map[string]float64{}, drop, rosteredPlayer{}, DefaultThresholds())
 	if len(got) != 1 {
 		t.Fatalf("want 1 candidate (Better FA only), got %d", len(got))
 	}
@@ -276,7 +248,7 @@ func TestBuildCandidates_GapFilter(t *testing.T) {
 }
 
 func TestWorstRosteredHitter(t *testing.T) {
-	roster := []fantrax.Player{
+	roster := []RosteredPlayer{
 		{Name: "Big Star", MLBTeam: "NYY"},
 		{Name: "Bench Guy", MLBTeam: "OAK"},
 		{Name: "Injured Guy", MLBTeam: "NYM", IsInjured: true},
@@ -287,7 +259,7 @@ func TestWorstRosteredHitter(t *testing.T) {
 		projections.NormalizeName("Bench Guy"):   {G: 100, H: 50, HR: 3, RBI: 25, R: 25, BB: 20, SO: 100},
 		projections.NormalizeName("Injured Guy"): {G: 100, H: 30, HR: 1, RBI: 10, R: 10, BB: 10, SO: 50},
 	}
-	scoring := fantrax.ScoringWeights{"1B": 1, "HR": 4, "RBI": 1, "R": 1, "BB": 1, "SO": -0.5}
+	scoring := map[string]float64{"1B": 1, "HR": 4, "RBI": 1, "R": 1, "BB": 1, "SO": -0.5}
 
 	got := worstRosteredHitter(roster, bat, scoring)
 	if got.Name != "Bench Guy" {

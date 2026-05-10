@@ -1,11 +1,6 @@
 package waivers
 
-import (
-	"time"
-
-	"github.com/nixon-commits/rosterbot/internal/fantrax"
-	"github.com/pmurley/go-fantrax/models"
-)
+import "time"
 
 // Signal classifies a waiver candidate's reason for surfacing.
 type Signal int
@@ -169,20 +164,11 @@ type SavantBundle struct {
 	PitcherExp30d map[int]SavantPitcherRow
 }
 
-// FantraxClient is the narrow subset of *fantrax.Client used by Run, isolated
-// for testability (mirrors transactions.TradeClient).
-type FantraxClient interface {
-	GetFullPlayerPool() ([]models.PoolPlayer, error)
-	GetScoringWeights() (fantrax.ScoringWeights, error)
-	GetPitcherScoringWeights() (fantrax.ScoringWeights, error)
-	GetHitterRoster() ([]fantrax.Player, error)
-	GetPitcherRoster() ([]fantrax.Player, error)
-}
-
 // Options govern a single Run invocation.
 type Options struct {
 	TopN             int
 	Positions        []string // optional position filter (e.g. "OF", "SP"); empty = all
+	ProjectionSystem string   // "depthcharts" (default), "steamer", "thebatx", "*-ros" variants
 	NoCache          bool
 	DryRun           bool
 	PushoverUserKey  string

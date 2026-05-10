@@ -9,11 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/nixon-commits/rosterbot/internal/notify"
 	"github.com/nixon-commits/rosterbot/internal/projections"
-	"github.com/pmurley/go-fantrax/auth_client"
-	"github.com/pmurley/go-fantrax/models"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -26,7 +23,11 @@ const (
 // Run executes the waivers report end-to-end. Mirrors prospects.RunProspectReport
 // in shape: errgroup-parallel fetches, build the report, emit stdout / GHA
 // markdown / Pushover (last one only when not in dry-run and creds are set).
-func Run(ft FantraxClient, today time.Time, opts Options) error {
+//
+// The Platform argument abstracts the fantasy provider — see platform.go for
+// the surface. Adapters live in cmd/ so internal/fantrax and internal/espn
+// stay neutral.
+func Run(p Platform, today time.Time, opts Options) error {
 	if opts.TopN <= 0 {
 		opts.TopN = defaultTopN
 	}
@@ -43,29 +44,34 @@ func Run(ft FantraxClient, today time.Time, opts Options) error {
 	}
 
 	var (
-		pool           []models.PoolPlayer
+		freeAgents     []FreeAgent
 		batSrc         projections.Source
 		pitSrc         projections.PitcherSource
-		hitterScoring  fantrax.ScoringWeights
-		pitcherScoring fantrax.ScoringWeights
+		hitterScoring  map[string]float64
+		pitcherScoring map[string]float64
 		savant         *SavantBundle
-		hitterRoster   []fantrax.Player
-		pitcherRoster  []fantrax.Player
+		hitterRoster   []RosteredPlayer
+		pitcherRoster  []RosteredPlayer
 	)
 
 	g := new(errgroup.Group)
 
 	g.Go(func() error {
-		p, err := ft.GetFullPlayerPool()
+		fa, err := p.GetFreeAgents()
 		if err != nil {
-			return fmt.Errorf("get player pool: %w", err)
+			return fmt.Errorf("get free agents: %w", err)
 		}
-		pool = p
+		freeAgents = fa
 		return nil
 	})
 
+	projSystem := opts.ProjectionSystem
+	if projSystem == "" {
+		projSystem = projections.ProjectionDepthCharts
+	}
+
 	g.Go(func() error {
-		src, _, err := projections.LoadBattingProjections(projections.ProjectionSteamer, opts.CacheDir, ttl)
+		src, _, err := projections.LoadBattingProjections(projSystem, opts.CacheDir, ttl)
 		if err != nil {
 			log.Printf("WARNING: batting projections unavailable: %v", err)
 			return nil
@@ -75,7 +81,7 @@ func Run(ft FantraxClient, today time.Time, opts Options) error {
 	})
 
 	g.Go(func() error {
-		src, _, err := projections.LoadPitcherProjections(projections.ProjectionSteamer, opts.CacheDir, ttl)
+		src, _, err := projections.LoadPitcherProjections(projSystem, opts.CacheDir, ttl)
 		if err != nil {
 			log.Printf("WARNING: pitcher projections unavailable: %v", err)
 			return nil
@@ -85,7 +91,7 @@ func Run(ft FantraxClient, today time.Time, opts Options) error {
 	})
 
 	g.Go(func() error {
-		w, err := ft.GetScoringWeights()
+		w, err := p.GetHitterScoringWeights()
 		if err != nil {
 			return fmt.Errorf("get hitter scoring weights: %w", err)
 		}
@@ -94,7 +100,7 @@ func Run(ft FantraxClient, today time.Time, opts Options) error {
 	})
 
 	g.Go(func() error {
-		w, err := ft.GetPitcherScoringWeights()
+		w, err := p.GetPitcherScoringWeights()
 		if err != nil {
 			return fmt.Errorf("get pitcher scoring weights: %w", err)
 		}
@@ -113,7 +119,7 @@ func Run(ft FantraxClient, today time.Time, opts Options) error {
 	})
 
 	g.Go(func() error {
-		r, err := ft.GetHitterRoster()
+		r, err := p.GetHitterRoster()
 		if err != nil {
 			return fmt.Errorf("get hitter roster: %w", err)
 		}
@@ -122,7 +128,7 @@ func Run(ft FantraxClient, today time.Time, opts Options) error {
 	})
 
 	g.Go(func() error {
-		r, err := ft.GetPitcherRoster()
+		r, err := p.GetPitcherRoster()
 		if err != nil {
 			return fmt.Errorf("get pitcher roster: %w", err)
 		}
@@ -134,7 +140,17 @@ func Run(ft FantraxClient, today time.Time, opts Options) error {
 		return err
 	}
 
-	freeAgents := filterFreeAgents(pool, opts.Positions)
+	if len(opts.Positions) > 0 {
+		freeAgents = filterByPosition(freeAgents, opts.Positions)
+	}
+
+	// Drop any FA whose normalized name matches a rostered player. ESPN's
+	// FA list can include MiLB players or duplicate ESPN player records that
+	// share a name with someone the user already owns — we never want to
+	// surface "upgrade Cristopher Sanchez (PHI) over Cristopher Sanchez
+	// (PHI)" as a swap. Fantrax dedupes by player ID server-side so this is
+	// a no-op there.
+	freeAgents = excludeRosteredNames(freeAgents, hitterRoster, pitcherRoster)
 
 	// Build name → MLBAM map from FanGraphs (free, no MLB API calls). Steamer
 	// rows already carry xMLBAMID, so a FA who has a Steamer projection also
@@ -189,53 +205,61 @@ func Run(ft FantraxClient, today time.Time, opts Options) error {
 	return nil
 }
 
-// filterFreeAgents reduces the league pool to MLB free agents (FA + waivers),
-// excluding minors-eligible-only players and applying the optional --positions
-// filter (case-insensitive substring match against MultiPositions).
-func filterFreeAgents(pool []models.PoolPlayer, posFilter []string) []models.PoolPlayer {
-	var out []models.PoolPlayer
-	for _, p := range pool {
-		if !isUnowned(p.FantasyStatus) {
+// excludeRosteredNames removes any free agent whose normalized name matches
+// a player on the user's roster. Defends against ESPN's name collisions
+// (MiLB players sharing names with rostered MLB players, ESPN duplicate
+// player IDs). Normalization matches what the Steamer join uses so the
+// comparison agrees with the rest of the pipeline.
+func excludeRosteredNames(fas []FreeAgent, hitters, pitchers []RosteredPlayer) []FreeAgent {
+	owned := map[string]bool{}
+	for _, p := range hitters {
+		owned[projections.NormalizeName(p.Name)] = true
+	}
+	for _, p := range pitchers {
+		owned[projections.NormalizeName(p.Name)] = true
+	}
+	if len(owned) == 0 {
+		return fas
+	}
+	out := make([]FreeAgent, 0, len(fas))
+	for _, fa := range fas {
+		if owned[projections.NormalizeName(fa.Name)] {
 			continue
 		}
-		if p.MinorsEligible {
-			continue
-		}
-		if len(posFilter) > 0 && !matchesPositionFilter(p, posFilter) {
-			continue
-		}
-		out = append(out, p)
+		out = append(out, fa)
 	}
 	return out
 }
 
-func isUnowned(status string) bool {
-	if status == "FA" || status == "" {
-		return true
+// filterByPosition keeps only free agents whose canonical Positions intersect
+// the case-insensitive filter set. Empty filter returns all.
+func filterByPosition(fas []FreeAgent, posFilter []string) []FreeAgent {
+	if len(posFilter) == 0 {
+		return fas
 	}
-	return strings.HasPrefix(status, "W")
-}
-
-func matchesPositionFilter(p models.PoolPlayer, filters []string) bool {
-	hay := strings.ToUpper(p.MultiPositions)
-	for _, f := range filters {
+	want := map[string]bool{}
+	for _, f := range posFilter {
 		f = strings.ToUpper(strings.TrimSpace(f))
-		if f == "" {
-			continue
+		if f != "" {
+			want[f] = true
 		}
-		for _, tok := range strings.Split(hay, ",") {
-			if strings.TrimSpace(tok) == f {
-				return true
+	}
+	var out []FreeAgent
+	for _, fa := range fas {
+		for _, pos := range fa.Positions {
+			if want[strings.ToUpper(pos)] {
+				out = append(out, fa)
+				break
 			}
 		}
 	}
-	return false
+	return out
 }
 
 // isSPEligible returns true when the player has SP eligibility.
 func isSPEligible(positions []string) bool {
 	for _, pos := range positions {
-		if pos == auth_client.PosSP {
+		if pos == "SP" {
 			return true
 		}
 	}
@@ -247,7 +271,7 @@ func isSPEligible(positions []string) bool {
 func isHitterEligible(positions []string) bool {
 	for _, pos := range positions {
 		switch pos {
-		case auth_client.PosSP, auth_client.PosRP, auth_client.PosP, auth_client.PosRP2, auth_client.PosRP3:
+		case "SP", "RP", "P":
 			continue
 		default:
 			return true
@@ -288,7 +312,7 @@ type rosteredPlayer struct {
 // the implicit drop target for any FA hitter. UT slot eligibility makes any
 // hitter mutually substitutable, so the floor is the global worst-projected
 // rostered hitter.
-func worstRosteredHitter(roster []fantrax.Player, src projections.Source, scoring fantrax.ScoringWeights) rosteredPlayer {
+func worstRosteredHitter(roster []RosteredPlayer, src projections.Source, scoring map[string]float64) rosteredPlayer {
 	if src == nil {
 		return rosteredPlayer{}
 	}
@@ -315,7 +339,7 @@ func worstRosteredHitter(roster []fantrax.Player, src projections.Source, scorin
 // worstRosteredPitcher mirrors worstRosteredHitter for pitchers. The P slot
 // accepts any pitcher, so the global worst-projected rostered pitcher is the
 // natural drop target.
-func worstRosteredPitcher(roster []fantrax.Player, src projections.PitcherSource, scoring fantrax.ScoringWeights) rosteredPlayer {
+func worstRosteredPitcher(roster []RosteredPlayer, src projections.PitcherSource, scoring map[string]float64) rosteredPlayer {
 	if src == nil {
 		return rosteredPlayer{}
 	}
@@ -344,13 +368,13 @@ func worstRosteredPitcher(roster []fantrax.Player, src projections.PitcherSource
 // exceeds it survive — the report becomes "concrete swaps that improve the
 // roster" rather than "FAs with a Statcast signal in absolute terms."
 func buildCandidates(
-	freeAgents []models.PoolPlayer,
+	freeAgents []FreeAgent,
 	mlbamByName map[string]int,
 	savant *SavantBundle,
 	batSrc projections.Source,
 	pitSrc projections.PitcherSource,
-	hitterScoring fantrax.ScoringWeights,
-	pitcherScoring fantrax.ScoringWeights,
+	hitterScoring map[string]float64,
+	pitcherScoring map[string]float64,
 	hitterDrop rosteredPlayer,
 	pitcherDrop rosteredPlayer,
 	th Thresholds,
@@ -369,12 +393,12 @@ func buildCandidates(
 		if spEligible && pitSrc != nil {
 			sig, c := TagPitcher(savant, mlbamID, th)
 			if sig != SignalNone {
-				proj, ok := pitSrc.GetPitcherProjection(p.Name, p.MLBTeamShortName)
+				proj, ok := pitSrc.GetPitcherProjection(p.Name, p.MLBTeam)
 				if ok {
 					c.ProjectedFPG = projections.PitcherExpectedPtsFromProj(proj, pitcherScoring)
 					c.Name = p.Name
-					c.MLBTeam = p.MLBTeamShortName
-					c.Position = primaryPosition(p)
+					c.MLBTeam = p.MLBTeam
+					c.Position = displayPosition(p)
 					if pitcherDrop.Name != "" {
 						c.DropName = pitcherDrop.Name
 						c.DropFPG = pitcherDrop.FPG
@@ -394,12 +418,12 @@ func buildCandidates(
 		if hitter && batSrc != nil {
 			sig, c := TagHitter(savant, mlbamID, th)
 			if sig != SignalNone {
-				proj, ok := batSrc.GetProjection(p.Name, p.MLBTeamShortName)
+				proj, ok := batSrc.GetProjection(p.Name, p.MLBTeam)
 				if ok {
 					c.ProjectedFPG = projections.ExpectedPtsFromProj(proj, hitterScoring)
 					c.Name = p.Name
-					c.MLBTeam = p.MLBTeamShortName
-					c.Position = primaryPosition(p)
+					c.MLBTeam = p.MLBTeam
+					c.Position = displayPosition(p)
 					if hitterDrop.Name != "" {
 						c.DropName = hitterDrop.Name
 						c.DropFPG = hitterDrop.FPG
@@ -416,29 +440,13 @@ func buildCandidates(
 	return out
 }
 
-// primaryPosition returns a clean comma-separated position label for display.
-// Falls back to PosShortNames with HTML stripped if MultiPositions is empty.
-func primaryPosition(p models.PoolPlayer) string {
-	if p.MultiPositions != "" {
-		return p.MultiPositions
+// displayPosition returns the comma-separated label shown in reports.
+// Falls back to canonical Positions joined by comma when Display is empty.
+func displayPosition(p FreeAgent) string {
+	if p.Display != "" {
+		return p.Display
 	}
-	return stripHTMLTags(p.PosShortNames)
-}
-
-func stripHTMLTags(s string) string {
-	var b strings.Builder
-	in := false
-	for _, r := range s {
-		switch {
-		case r == '<':
-			in = true
-		case r == '>':
-			in = false
-		case !in:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
+	return strings.Join(p.Positions, ",")
 }
 
 // ---------------------------------------------------------------------------
