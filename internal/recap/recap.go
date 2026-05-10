@@ -28,7 +28,7 @@ type Options struct {
 // Run pulls the data for the matchup week, aggregates per-team performance,
 // computes awards, and returns a Recap. The returned struct is the data model
 // the renderer consumes.
-func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
+func Run(ft Platform, opts Options) (*Recap, error) {
 	if opts.WeekEnd.Before(opts.WeekStart) {
 		return nil, fmt.Errorf("week end %s before start %s",
 			opts.WeekEnd.Format("2006-01-02"), opts.WeekStart.Format("2006-01-02"))
@@ -45,7 +45,7 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 		return nil, fmt.Errorf("season range: %w", err)
 	}
 
-	_, teamMap, teamLogos, err := ft.GetScoringPeriodsAndTeams()
+	teamMap, teamLogos, err := ft.GetTeams()
 	if err != nil {
 		return nil, fmt.Errorf("teams: %w", err)
 	}
@@ -238,7 +238,7 @@ type teamData struct {
 // collectTeam fetches one team's daily roster snapshots for the week, runs the
 // hindsight-optimal lineup analysis, and extracts player highlights + SP starts.
 func collectTeam(
-	ft *fantrax.Client,
+	ft Platform,
 	teamID, teamName string,
 	weekStart, weekEnd, seasonStart time.Time,
 	hitterSlots, pitcherSlots []fantrax.Slot,
@@ -576,7 +576,7 @@ func computeSeasonMeanFromDays(days []fantrax.DayRoster) (float64, int) {
 // through asOf (inclusive) and returns the FPts-per-day. Returns (0, 0, nil)
 // when asOf < seasonStart (i.e., no history yet — caller falls back to the
 // within-week mean).
-func seasonToDateTeamMean(ft *fantrax.Client, teamID string, seasonStart, asOf time.Time, cacheDir string, cacheTTL time.Duration) (float64, int, error) {
+func seasonToDateTeamMean(ft Platform, teamID string, seasonStart, asOf time.Time, cacheDir string, cacheTTL time.Duration) (float64, int, error) {
 	if asOf.Before(seasonStart) {
 		return 0, 0, nil
 	}
@@ -595,7 +595,7 @@ func seasonToDateTeamMean(ft *fantrax.Client, teamID string, seasonStart, asOf t
 //
 // When asOf precedes seasonStart (Week 1), returns nil so all teams fall
 // back without making any HTTP calls.
-func fetchSeasonMeans(ft *fantrax.Client, teamMap map[string]string, seasonStart, asOf time.Time, cacheDir string, cacheTTL time.Duration, concurrency int) map[string]float64 {
+func fetchSeasonMeans(ft Platform, teamMap map[string]string, seasonStart, asOf time.Time, cacheDir string, cacheTTL time.Duration, concurrency int) map[string]float64 {
 	if asOf.Before(seasonStart) {
 		return nil
 	}

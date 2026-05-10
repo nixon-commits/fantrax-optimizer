@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
-
-	"github.com/nixon-commits/rosterbot/internal/fantrax"
 )
 
 // SiteOptions configures a multi-week site build.
@@ -27,7 +25,7 @@ type SiteOptions struct {
 // `week-NN.html`, plus duplicates the latest week as `index.html` so the
 // site root serves the most recent recap. Each rendered page includes a
 // dropdown navigation linking to all other completed weeks.
-func RunSite(ft *fantrax.Client, sopts SiteOptions) error {
+func RunSite(ft Platform, sopts SiteOptions) error {
 	if sopts.OutDir == "" {
 		return fmt.Errorf("OutDir is required")
 	}
@@ -123,7 +121,7 @@ type matchupWeek struct {
 // completedMatchupWeeks enumerates weeks 1..N for the configured team and
 // returns only those whose end date is strictly before today (lexical YMD
 // comparison so timezone arithmetic doesn't bite us). Sorted ascending.
-func completedMatchupWeeks(ft *fantrax.Client, today time.Time) ([]matchupWeek, error) {
+func completedMatchupWeeks(ft Platform, today time.Time) ([]matchupWeek, error) {
 	todayYMD := today.Format("2006-01-02")
 	var out []matchupWeek
 	for n := 1; ; n++ {

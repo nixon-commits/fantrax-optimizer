@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/nixon-commits/rosterbot/internal/config"
 	"github.com/nixon-commits/rosterbot/internal/recap"
 	"github.com/spf13/cobra"
 )
@@ -32,7 +33,11 @@ func init() {
 
 func runRecapSite(cmd *cobra.Command, args []string) error {
 	today := todayET()
-	_, ft, err := initApp([]time.Time{today})
+	cfg, err := config.Load(dryRun, []time.Time{today})
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	platform, err := initRecapPlatform(cfg)
 	if err != nil {
 		return err
 	}
@@ -45,7 +50,7 @@ func runRecapSite(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Building recap site to %s (today=%s)...\n",
 		recapSiteOut, today.Format("2006-01-02"))
 
-	return recap.RunSite(ft, recap.SiteOptions{
+	return recap.RunSite(platform, recap.SiteOptions{
 		OutDir: recapSiteOut,
 		Today:  today,
 		Recap: recap.Options{

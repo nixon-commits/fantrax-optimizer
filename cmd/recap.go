@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/config"
 	"github.com/nixon-commits/rosterbot/internal/recap"
 	"github.com/spf13/cobra"
 )
@@ -37,12 +37,16 @@ func init() {
 
 func runRecap(cmd *cobra.Command, args []string) error {
 	today := todayET()
-	_, ft, err := initApp([]time.Time{today})
+	cfg, err := config.Load(dryRun, []time.Time{today})
+	if err != nil {
+		return fmt.Errorf("config: %w", err)
+	}
+	platform, err := initRecapPlatform(cfg)
 	if err != nil {
 		return err
 	}
 
-	weekStart, weekEnd, err := resolveRecapRange(ft, today)
+	weekStart, weekEnd, err := resolveRecapRange(platform, today)
 	if err != nil {
 		return fmt.Errorf("resolve range: %w", err)
 	}
@@ -60,7 +64,7 @@ func runRecap(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "Building recap for %s – %s...\n",
 		weekStart.Format("2006-01-02"), weekEnd.Format("2006-01-02"))
 
-	r, err := recap.Run(ft, recap.Options{
+	r, err := recap.Run(platform, recap.Options{
 		WeekStart:  weekStart,
 		WeekEnd:    weekEnd,
 		WeekNumber: recapWeek, // 0 if not provided → recap.Run derives it
@@ -102,7 +106,11 @@ func runRecap(cmd *cobra.Command, args []string) error {
 
 // resolveRecapRange picks the matchup-week window. Priority: explicit --dates,
 // then --week N, then default (last completed matchup week up through yesterday).
-func resolveRecapRange(ft *fantrax.Client, today time.Time) (time.Time, time.Time, error) {
+//
+// The "default" path uses GetMatchupWeekNumberForDate to walk backwards a week
+// at a time — that method is on the recap.Platform interface so this resolver
+// works for both Fantrax and ESPN.
+func resolveRecapRange(p recap.Platform, today time.Time) (time.Time, time.Time, error) {
 	if recapDates != "" {
 		dates, err := parseDates(recapDates, today)
 		if err != nil {
@@ -115,7 +123,7 @@ func resolveRecapRange(ft *fantrax.Client, today time.Time) (time.Time, time.Tim
 	}
 
 	if recapWeek > 0 {
-		ws, we, err := ft.GetMatchupWeekByNumber(recapWeek)
+		ws, we, err := p.GetMatchupWeekByNumber(recapWeek)
 		if err != nil {
 			return time.Time{}, time.Time{}, err
 		}
@@ -126,22 +134,23 @@ func resolveRecapRange(ft *fantrax.Client, today time.Time) (time.Time, time.Tim
 	}
 
 	yesterday := today.AddDate(0, 0, -1)
-	seasonStart, _, err := ft.GetSeasonDateRange()
+	n, err := p.GetMatchupWeekNumberForDate(yesterday)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
-
-	ws, we, err := ft.GetMatchupWeekBounds(yesterday, seasonStart)
+	if n <= 0 {
+		return time.Time{}, time.Time{}, fmt.Errorf("no matchup week found for %s", yesterday.Format("2006-01-02"))
+	}
+	ws, we, err := p.GetMatchupWeekByNumber(n)
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
 	if ws.IsZero() {
-		return time.Time{}, time.Time{}, fmt.Errorf("no matchup week found for %s", yesterday.Format("2006-01-02"))
+		return time.Time{}, time.Time{}, fmt.Errorf("matchup week %d not found in season schedule", n)
 	}
 	// If today is still inside this week, step back to the previous week.
-	if !today.After(we) {
-		prior := ws.AddDate(0, 0, -1)
-		ws, we, err = ft.GetMatchupWeekBounds(prior, seasonStart)
+	if !today.After(we) && n > 1 {
+		ws, we, err = p.GetMatchupWeekByNumber(n - 1)
 		if err != nil {
 			return time.Time{}, time.Time{}, err
 		}
