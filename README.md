@@ -199,11 +199,32 @@ The recap workflow uses `actions/deploy-pages` and needs `permissions: pages: wr
 ## Development
 
 ```bash
-make test      # run all unit tests
-make dry-run   # quick local test run
+make test         # run all unit tests
+make dry-run      # quick local test run (optimize --dry-run only)
+make clean-cache  # rm -rf .cache/  (cold-pass baseline before make run-all)
+make run-all      # exercise every CLI command in dry-run / read-only mode
 ```
 
 Tests require no credentials — all network dependencies are mocked via interfaces or test servers.
+
+`make run-all` iterates every command (scoring, optimize, prospects,
+gs-check, transactions, waivers, backtest, recap, recap-site) with
+`time` on each step, prints the final `.cache/` size, and continues
+on errors so one broken step doesn't abort the sweep. It's the
+single-command end-to-end smoke test and the easiest way to observe
+cache behavior — stderr `cache hit:` / `cache miss:` lines tell you
+what each command touched. Run cold-then-warm to see the speedup:
+
+```bash
+make clean-cache && make run-all 2>&1 | tee /tmp/cold.log
+make run-all 2>&1 | tee /tmp/warm.log
+```
+
+**When adding a new CLI command, append a corresponding line to the
+`run-all` recipe in the `Makefile`** so the smoke test stays
+comprehensive. The convention is: dry-run mode if the command has
+side effects, plain invocation otherwise; output written to
+`/tmp/<name>` for anything that produces files.
 
 ## Architecture
 

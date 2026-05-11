@@ -27,7 +27,11 @@ go run . optimize --dry-run --archive-projections    # archive projections for f
 go run . recap --out /tmp/recap.html                 # render weekly HTML recap (most recent completed week)
 go run . recap --dates 2026-04-20:2026-04-26 --out /tmp/recap.html  # specific window
 go run . recap-site --out dist                       # render every completed week into a static site dir
+make clean-cache        # rm -rf .cache/  (cold-pass baseline before make run-all)
+make run-all            # exercise every command in dry-run / read-only mode + print cache size
 ```
+
+**`make run-all` is the canonical end-to-end smoke test** — it iterates every CLI command in dry-run / read-only mode with `time` on each step and prints the final `.cache/` size. Use it for two things: (1) a single-command sanity check before pushing changes, and (2) observing cache behavior — stderr `cache hit:` / `cache miss:` lines show what each command touched. **Whenever you add a new top-level CLI command (a new `cmd/<x>.go` registered on `rootCmd`), append a corresponding line to the `run-all` recipe in the `Makefile`** so the smoke target stays comprehensive. Pair with `make clean-cache && make run-all` for a cold pass, then `make run-all` again to see warm-cache behavior.
 
 After making code changes, always run `go vet ./...` and `go mod tidy` to catch issues early. Note: `gofmt` and `go vet` run automatically via PostToolUse hooks on every Edit/Write.
 
