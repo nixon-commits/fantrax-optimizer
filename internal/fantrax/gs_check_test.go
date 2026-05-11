@@ -157,28 +157,28 @@ func TestPlayerGSFromTables(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// P1=3 (active), P2=5 (active), P3=empty GS, P4=2 (bench)
-	if result["p1"].gs != 3 {
-		t.Errorf("expected p1 gs=3, got %d", result["p1"].gs)
+	if result["p1"].GS != 3 {
+		t.Errorf("expected p1 gs=3, got %d", result["p1"].GS)
 	}
-	if result["p1"].fpts != 45.5 {
-		t.Errorf("expected p1 fpts=45.5, got %f", result["p1"].fpts)
+	if result["p1"].FPts != 45.5 {
+		t.Errorf("expected p1 fpts=45.5, got %f", result["p1"].FPts)
 	}
-	if result["p1"].name != "Ace Pitcher" {
-		t.Errorf("expected p1 name='Ace Pitcher', got %q", result["p1"].name)
+	if result["p1"].Name != "Ace Pitcher" {
+		t.Errorf("expected p1 name='Ace Pitcher', got %q", result["p1"].Name)
 	}
-	if !result["p1"].active {
+	if !result["p1"].Active {
 		t.Error("expected p1 active=true")
 	}
-	if result["p2"].gs != 5 {
-		t.Errorf("expected p2 gs=5, got %d", result["p2"].gs)
+	if result["p2"].GS != 5 {
+		t.Errorf("expected p2 gs=5, got %d", result["p2"].GS)
 	}
-	if result["p2"].fpts != 30.0 {
-		t.Errorf("expected p2 fpts=30.0, got %f", result["p2"].fpts)
+	if result["p2"].FPts != 30.0 {
+		t.Errorf("expected p2 fpts=30.0, got %f", result["p2"].FPts)
 	}
-	if result["p4"].gs != 2 {
-		t.Errorf("expected p4 gs=2, got %d", result["p4"].gs)
+	if result["p4"].GS != 2 {
+		t.Errorf("expected p4 gs=2, got %d", result["p4"].GS)
 	}
-	if result["p4"].active {
+	if result["p4"].Active {
 		t.Error("expected p4 active=false (bench)")
 	}
 	if _, ok := result["p3"]; ok {
@@ -210,16 +210,16 @@ func TestPlayerGSFromTables_ActiveOnly(t *testing.T) {
 		t.Fatalf("expected 4 players, got %d", len(result))
 	}
 	// All players returned, but only a1 is active
-	if !result["a1"].active {
+	if !result["a1"].Active {
 		t.Error("expected a1 active")
 	}
-	if result["a1"].fpts != 50.0 {
-		t.Errorf("expected a1 fpts=50.0, got %f", result["a1"].fpts)
+	if result["a1"].FPts != 50.0 {
+		t.Errorf("expected a1 fpts=50.0, got %f", result["a1"].FPts)
 	}
-	if result["a1"].name != "Active SP" {
-		t.Errorf("expected a1 name='Active SP', got %q", result["a1"].name)
+	if result["a1"].Name != "Active SP" {
+		t.Errorf("expected a1 name='Active SP', got %q", result["a1"].Name)
 	}
-	if result["b1"].active || result["i1"].active || result["m1"].active {
+	if result["b1"].Active || result["i1"].Active || result["m1"].Active {
 		t.Error("expected bench/IL/minors to be inactive")
 	}
 }
@@ -241,14 +241,14 @@ func TestPlayerGSFromTables_NoFPtsColumn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result["s1"].gs != 3 {
-		t.Errorf("expected gs=3, got %d", result["s1"].gs)
+	if result["s1"].GS != 3 {
+		t.Errorf("expected gs=3, got %d", result["s1"].GS)
 	}
-	if result["s1"].fpts != 0 {
-		t.Errorf("expected fpts=0 when column missing, got %f", result["s1"].fpts)
+	if result["s1"].FPts != 0 {
+		t.Errorf("expected fpts=0 when column missing, got %f", result["s1"].FPts)
 	}
-	if result["s1"].name != "SP1" {
-		t.Errorf("expected name='SP1', got %q", result["s1"].name)
+	if result["s1"].Name != "SP1" {
+		t.Errorf("expected name='SP1', got %q", result["s1"].Name)
 	}
 }
 

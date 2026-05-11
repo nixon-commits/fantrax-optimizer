@@ -113,7 +113,7 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 	// Attach each start's opponent via the MLB schedule. One fetch per unique
 	// date in the week. Soft-fail if the schedule API is unreachable — the
 	// label just won't render.
-	annotateOpponents(allStarts)
+	annotateOpponents(allStarts, opts.CacheDir)
 
 	// Build per-day per-team totals for the WP simulation σ.
 	dayTotals := buildTeamDays(results, teamMap)
@@ -273,7 +273,7 @@ func collectTeam(
 
 	active := extractActivePlayerLines(days, teamName)
 
-	starts, err := ft.GetTeamPitcherStarts(teamID, weekStart, weekEnd, seasonStart)
+	starts, err := ft.GetTeamPitcherStarts(teamID, weekStart, weekEnd, seasonStart, cacheDir, cacheTTL)
 	if err != nil {
 		// Soft-fail: pitcher starts are nice-to-have. Log via stderr (caller
 		// orchestrates output); recap still returns.
@@ -322,13 +322,16 @@ func extractActivePlayerLines(days []fantrax.DayRoster, ownerTeam string) []Play
 }
 
 // annotateOpponents fills the Opponent field on each start by looking up the
-// MLB schedule for that date. One schedule fetch per unique date. Soft-fails
-// silently — a missing opponent just renders blank.
-func annotateOpponents(starts []PitcherStartLine) {
+// MLB schedule for that date. One schedule fetch per unique date. Past-date
+// schedules are persisted to cacheDir (key `mlb-schedule-<YYYY-MM-DD>`) so
+// rebuilds reuse them. Soft-fails silently — a missing opponent just renders
+// blank.
+func annotateOpponents(starts []PitcherStartLine, cacheDir string) {
 	if len(starts) == 0 {
 		return
 	}
 	sched := schedule.NewClient()
+	sched.CacheDir = cacheDir
 	cache := map[string]map[string]string{}
 	for i := range starts {
 		s := &starts[i]

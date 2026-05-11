@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	gofantrax "github.com/pmurley/go-fantrax"
@@ -163,6 +164,16 @@ type Client struct {
 	leagueID   string
 	teamID     string
 	leagueInfo *gofantrax.LeagueInfo // cached league info
+
+	// matchupsMu guards matchupsMemo, an in-memory cache of the
+	// season-wide matchups response. The result is reused across all
+	// matchup-helper calls within a single binary invocation (e.g. a
+	// recap-site build hits five different MatchupWeek lookups). For
+	// per-run freshness — the in-progress week's scores mutate during
+	// the day — we deliberately don't persist this to disk; in-memory
+	// lasts as long as the process and that's the right scope.
+	matchupsMu   sync.Mutex
+	matchupsMemo *auth_client.AllMatchupsResult
 }
 
 // NewClient creates both the public (read) and auth (read+write) Fantrax clients.
@@ -200,6 +211,26 @@ func (c *Client) getLeagueInfo() (*gofantrax.LeagueInfo, error) {
 	}
 	c.leagueInfo = info
 	return info, nil
+}
+
+// allMatchups returns the season-wide matchups response, fetched once per
+// Client lifetime. Multiple matchup-helper paths (week bounds, week-by-number,
+// week-final check, entries iteration) need the same data; without
+// memoization a single recap-site build issued five identical POSTs to
+// Fantrax. Only in-memory — the in-progress week mutates during the day,
+// and a fresh process boundary is the right TTL.
+func (c *Client) allMatchups() (*auth_client.AllMatchupsResult, error) {
+	c.matchupsMu.Lock()
+	defer c.matchupsMu.Unlock()
+	if c.matchupsMemo != nil {
+		return c.matchupsMemo, nil
+	}
+	result, err := c.auth.GetAllMatchups()
+	if err != nil {
+		return nil, err
+	}
+	c.matchupsMemo = result
+	return result, nil
 }
 
 // GetHitterRoster returns all hitters on the team (active + reserve; excludes IL/minors).

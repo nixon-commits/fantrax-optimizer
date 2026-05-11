@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nixon-commits/rosterbot/internal/cache"
 	"github.com/pmurley/go-fantrax/auth_client"
 	"github.com/pmurley/go-fantrax/models"
 )
@@ -148,13 +149,14 @@ type gsRosterRequest struct {
 }
 
 // playerGSSnapshot holds a pitcher's YTD GS, YTD fantasy points, name, MLB
-// team abbreviation, and active-slot status.
+// team abbreviation, and active-slot status. Field names are exported so
+// the struct can round-trip through JSON when it's cached on disk.
 type playerGSSnapshot struct {
-	gs      int
-	fpts    float64
-	name    string
-	mlbTeam string
-	active  bool
+	GS      int     `json:"gs"`
+	FPts    float64 `json:"fpts"`
+	Name    string  `json:"name"`
+	MLBTeam string  `json:"mlb_team"`
+	Active  bool    `json:"active"`
 }
 
 // PitcherStart records a single active-slot pitcher game start with its fantasy points.
@@ -193,8 +195,8 @@ func (c *Client) GetTeamGS(teamID, teamName string, sp ScoringPeriod, seasonStar
 			return 0, nil, fmt.Errorf("get baseline GS: %w", err)
 		}
 		for pid, snap := range info {
-			prevGS[pid] = snap.gs
-			prevFPts[pid] = snap.fpts
+			prevGS[pid] = snap.GS
+			prevFPts[pid] = snap.FPts
 		}
 	}
 
@@ -226,9 +228,9 @@ func (c *Client) GetTeamGS(teamID, teamName string, sp ScoringPeriod, seasonStar
 		var dayStarts []PitcherStart
 		for pid, snap := range info {
 			// Only count this day's GS delta if the pitcher was in an active slot.
-			if snap.active {
+			if snap.Active {
 				prev, existed := prevGS[pid]
-				delta := snap.gs - prev
+				delta := snap.GS - prev
 				capped := false
 				if !existed && delta > 1 {
 					delta = 1
@@ -236,30 +238,30 @@ func (c *Client) GetTeamGS(teamID, teamName string, sp ScoringPeriod, seasonStar
 				}
 				if delta > 0 {
 					totalGS += delta
-					fptsDelta := snap.fpts - prevFPts[pid]
+					fptsDelta := snap.FPts - prevFPts[pid]
 					dayStarts = append(dayStarts, PitcherStart{
-						PitcherName: snap.name,
+						PitcherName: snap.Name,
 						FPts:        fptsDelta,
 					})
 					if verbose {
 						mark := ""
 						if capped {
-							mark = fmt.Sprintf(" [FIRST APPEARANCE — raw delta=+%d, capped to 1]", snap.gs-prev)
+							mark = fmt.Sprintf(" [FIRST APPEARANCE — raw delta=+%d, capped to 1]", snap.GS-prev)
 						} else if !existed {
 							mark = " [FIRST APPEARANCE]"
 						}
 						fmt.Printf("      [%s] %s: prev=%d now=%d delta=+%d%s\n",
-							d.Format("2006-01-02"), snap.name, prev, snap.gs, delta, mark)
+							d.Format("2006-01-02"), snap.Name, prev, snap.GS, delta, mark)
 					}
-				} else if verbose && !existed && snap.gs > 0 {
+				} else if verbose && !existed && snap.GS > 0 {
 					fmt.Printf("      [%s] %s: first appearance (active, YTD=%d, no new start today)\n",
-						d.Format("2006-01-02"), snap.name, snap.gs)
+						d.Format("2006-01-02"), snap.Name, snap.GS)
 				}
 			}
 			// Retain the latest known YTD for this pitcher regardless of active
 			// status, so future days can diff against his real prior YTD.
-			prevGS[pid] = snap.gs
-			prevFPts[pid] = snap.fpts
+			prevGS[pid] = snap.GS
+			prevFPts[pid] = snap.FPts
 		}
 
 		// Collect starts from any day where the team is over gsMax. All starts
@@ -341,6 +343,30 @@ func (c *Client) getPlayerGSSnapshotForPeriod(teamID string, period int) (map[st
 	return playerGSFromTables(tables)
 }
 
+// getPlayerGSSnapshotForPeriodCached wraps getPlayerGSSnapshotForPeriod with
+// a TTL'd file cache. Pass snapCache=nil (or with TTL=0) to bypass caching;
+// callers like the live gs-check path skip the cache because they always
+// need fresh data, while the recap pipeline reuses immutable past-period
+// snapshots across runs. The returned bool reports whether the upstream
+// API was actually hit — callers can use this to skip throttle sleeps on
+// cache hits.
+func (c *Client) getPlayerGSSnapshotForPeriodCached(
+	snapCache *cache.FileCache[map[string]playerGSSnapshot],
+	teamID string,
+	period int,
+) (snap map[string]playerGSSnapshot, hitNetwork bool, err error) {
+	if snapCache == nil {
+		snap, err = c.getPlayerGSSnapshotForPeriod(teamID, period)
+		return snap, true, err
+	}
+	key := cache.Key("fantrax-pitcher-gs", teamID, strconv.Itoa(period))
+	snap, err = snapCache.Get(key, func() (map[string]playerGSSnapshot, error) {
+		hitNetwork = true
+		return c.getPlayerGSSnapshotForPeriod(teamID, period)
+	})
+	return snap, hitNetwork, err
+}
+
 // playerGSFromTables finds the pitching table (scGroup=20) and returns per-player
 // YTD GS, YTD fantasy points, name, and active-slot status (keyed by ScorerID).
 // StatusID "1" = active slot; "2" = reserve/bench, "3" = IL, "9" = minors.
@@ -391,11 +417,11 @@ func playerGSFromTables(tables []models.RosterTable) (map[string]playerGSSnapsho
 			}
 
 			result[row.Scorer.ScorerID] = playerGSSnapshot{
-				gs:      int(math.Round(val)),
-				fpts:    fpts,
-				name:    row.Scorer.Name,
-				mlbTeam: row.Scorer.TeamShortName,
-				active:  row.StatusID == "1",
+				GS:      int(math.Round(val)),
+				FPts:    fpts,
+				Name:    row.Scorer.Name,
+				MLBTeam: row.Scorer.TeamShortName,
+				Active:  row.StatusID == "1",
 			}
 		}
 		return result, nil

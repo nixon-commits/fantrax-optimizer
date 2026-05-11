@@ -124,7 +124,7 @@ func MatchupWeekNumberForDate(matchups []auth_client.Matchup, teamID string, dat
 // GetMatchupWeekBounds is a convenience method that fetches all matchups and
 // returns the week boundaries for the given date.
 func (c *Client) GetMatchupWeekBounds(date time.Time, seasonStart time.Time) (weekStart, weekEnd time.Time, err error) {
-	result, err := c.auth.GetAllMatchups()
+	result, err := c.allMatchups()
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
@@ -135,7 +135,7 @@ func (c *Client) GetMatchupWeekBounds(date time.Time, seasonStart time.Time) (we
 // GetMatchupWeekByNumber fetches all matchups and returns the bounds of the
 // n-th matchup week (1-indexed) for the configured team.
 func (c *Client) GetMatchupWeekByNumber(n int) (weekStart, weekEnd time.Time, err error) {
-	result, err := c.auth.GetAllMatchups()
+	result, err := c.allMatchups()
 	if err != nil {
 		return time.Time{}, time.Time{}, err
 	}
@@ -147,7 +147,7 @@ func (c *Client) GetMatchupWeekByNumber(n int) (weekStart, weekEnd time.Time, er
 // the given date for the configured team. Returns 0 if the date isn't in any
 // week (or before the season).
 func (c *Client) GetMatchupWeekNumberForDate(date time.Time) (int, error) {
-	result, err := c.auth.GetAllMatchups()
+	result, err := c.allMatchups()
 	if err != nil {
 		return 0, err
 	}
@@ -191,7 +191,7 @@ func MatchupWeekIsFinal(matchups []auth_client.Matchup, teamID string, weekStart
 // week as completed for the configured team. See MatchupWeekIsFinal for the
 // signal it relies on. Returns false if the week is not found in the season.
 func (c *Client) IsMatchupWeekFinal(n int) (bool, error) {
-	result, err := c.auth.GetAllMatchups()
+	result, err := c.allMatchups()
 	if err != nil {
 		return false, err
 	}
@@ -214,7 +214,7 @@ type MatchupEntry struct {
 
 // GetAllMatchupEntries returns all matchup pairings for the season.
 func (c *Client) GetAllMatchupEntries() ([]MatchupEntry, error) {
-	result, err := c.auth.GetAllMatchups()
+	result, err := c.allMatchups()
 	if err != nil {
 		return nil, err
 	}
