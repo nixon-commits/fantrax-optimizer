@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -365,7 +366,16 @@ func FetchPerformanceAlerts(prospects []fantrax.Player, rankings map[string]int,
 	var alerts []ProspectAlert
 
 	g := new(errgroup.Group)
-	sem := make(chan struct{}, 5)
+	// Each prospect makes up to two MLB statsapi calls (player-id resolve +
+	// game-log fetch). The MLB API tolerates well above 5 concurrent
+	// connections; cap at NumCPU * 2 (or 16 floor) so cold runs aren't
+	// bottlenecked on a serial-by-default rate. Once cached, this loop is
+	// pure file I/O and the concurrency cost is trivial.
+	maxConcurrent := runtime.NumCPU() * 2
+	if maxConcurrent < 16 {
+		maxConcurrent = 16
+	}
+	sem := make(chan struct{}, maxConcurrent)
 
 	for _, p := range prospects {
 		p := p

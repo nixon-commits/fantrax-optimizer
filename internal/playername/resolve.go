@@ -2,12 +2,17 @@ package playername
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/nixon-commits/rosterbot/internal/cache"
 	mlb "github.com/pmurley/go-mlb"
 	"github.com/pmurley/go-mlb/models"
+	"golang.org/x/sync/errgroup"
 )
 
 // mlbBaseURL is the MLB Stats API host (without /api/ — go-mlb appends that).
@@ -27,15 +32,45 @@ type ResolvedPlayers struct {
 }
 
 // ResolveMLBAMIDs looks up MLBAM IDs for a list of player names via the
-// MLB Stats API. Results are cached in .cache/mlb-player-ids.json.
+// MLB Stats API. Results are cached at
+// `.cache/mlb-player-ids-<sha8>.json` where sha8 is a short hash of the
+// (sorted, deduped) input names. Keying on the input set means a roster
+// addition produces a new cache file and the new player is resolved
+// promptly — the previous shared `mlb-player-ids` key returned the LAST
+// caller's resolution regardless of who asked, leaving newly-rostered
+// prospects unresolved until the 7-day TTL expired.
 //
 // For each resolved player, both name variants (legal firstName and common
 // useName combined with lastName) are indexed so cross-source matching works.
 func ResolveMLBAMIDs(names []string, cacheDir string) (*ResolvedPlayers, error) {
 	fc := cache.New[*ResolvedPlayers](cacheDir, cacheTTL)
-	return fc.Get("mlb-player-ids", func() (*ResolvedPlayers, error) {
+	key := cache.Key("mlb-player-ids", namesHash(names))
+	return fc.Get(key, func() (*ResolvedPlayers, error) {
 		return fetchAndResolve(names)
 	})
+}
+
+// namesHash returns a short hex hash of the deduped, sorted, normalized
+// name set so that identical inputs produce the same cache key while
+// different inputs miss properly.
+func namesHash(names []string) string {
+	seen := map[string]bool{}
+	uniq := make([]string, 0, len(names))
+	for _, n := range names {
+		k := Normalize(n)
+		if k == "" || seen[k] {
+			continue
+		}
+		seen[k] = true
+		uniq = append(uniq, k)
+	}
+	sort.Strings(uniq)
+	h := sha256.New()
+	for _, n := range uniq {
+		h.Write([]byte(n))
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:8]
 }
 
 // ResolveMLBAMIDsNoCache always fetches fresh (for testing or forced refresh).
@@ -69,28 +104,42 @@ func fetchAndResolve(names []string) (*ResolvedPlayers, error) {
 
 	// Batch search across MLB + affiliated minors + winter ball
 	// (sportIds 11/12/13/14 = AAA/AA/A+/A, 16 = winter, 1 = MLB).
+	// Batches run in parallel because each MLB People.Search call is
+	// network-bound and the API tolerates concurrent requests; serial
+	// batches were the dominant cost on cold runs (~30s for ~100 names).
 	const searchBatchSize = 25
 	idSet := make(map[int]bool)
 	var ids []int
+	var idMu sync.Mutex
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(8) // courteous parallelism; MLB statsapi is fine with this.
 	for i := 0; i < len(searchNames); i += searchBatchSize {
 		end := i + searchBatchSize
 		if end > len(searchNames) {
 			end = len(searchNames)
 		}
-		people, err := client.People.Search(ctx,
-			mlb.WithNames(searchNames[i:end]...),
-			mlb.WithQueryParam("sportIds", "11,12,13,14,16,1"),
-		)
-		if err != nil {
-			continue
-		}
-		for _, p := range people {
-			if !idSet[p.ID] {
-				idSet[p.ID] = true
-				ids = append(ids, p.ID)
+		batch := searchNames[i:end]
+		g.Go(func() error {
+			people, err := client.People.Search(gctx,
+				mlb.WithNames(batch...),
+				mlb.WithQueryParam("sportIds", "11,12,13,14,16,1"),
+			)
+			if err != nil {
+				return nil // soft-fail mirrors the prior `continue` semantics
 			}
-		}
+			idMu.Lock()
+			defer idMu.Unlock()
+			for _, p := range people {
+				if !idSet[p.ID] {
+					idSet[p.ID] = true
+					ids = append(ids, p.ID)
+				}
+			}
+			return nil
+		})
 	}
+	_ = g.Wait()
 
 	// Bulk-fetch full person details (firstName, useName, lastName) so we can
 	// index both legal and use-name variants.
