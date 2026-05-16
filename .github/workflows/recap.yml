@@ -30,7 +30,7 @@ jobs:
           cache: true
 
       - name: Restore Fantrax snapshot cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache
           key: recap-${{ github.run_id }}

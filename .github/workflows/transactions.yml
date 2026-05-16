@@ -24,7 +24,7 @@ jobs:
           cache: true
 
       - name: Restore HKB cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache
           key: transactions-${{ github.run_id }}
