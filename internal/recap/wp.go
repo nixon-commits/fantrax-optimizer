@@ -3,9 +3,67 @@ package recap
 import (
 	"math"
 	"time"
-
-	"github.com/pmurley/go-fantrax/models"
 )
+
+// calculateWinProbability is the Go port of the WP formula Fantrax runs
+// client-side in its live-scoring Angular bundle (chunk-5QCCTEMV.js's
+// `calculateWinProbability` function). Returns home/away percentages in
+// [0, 100] that sum to 100.
+//
+// Reverse-engineered constants — power=4, slack=0.08, actualWeight=0.05 —
+// match Fantrax's published behavior. Edge cases mirror the JS exactly:
+// zero projections → 50/50, both teams out of games → winner takes 100%,
+// values close-to-but-not-exactly 50/50 are nudged to 51/49.
+//
+// Inputs:
+//
+//	homeFpts, awayFpts          — points scored so far this period
+//	homeProj, awayProj          — projected period totals
+//	homeTimeLeft, awayTimeLeft  — games remaining for each team this period
+func calculateWinProbability(homeFpts, awayFpts, homeProj, awayProj float64, homeTimeLeft, awayTimeLeft int) (homePct, awayPct int) {
+	if homeProj == 0 && awayProj == 0 {
+		return 50, 50
+	}
+	if homeTimeLeft == 0 && awayTimeLeft == 0 {
+		if homeFpts > awayFpts {
+			return 100, 0
+		}
+		return 0, 100
+	}
+
+	const (
+		pow          = 4.0
+		slack        = 0.08
+		actualWeight = 0.05
+	)
+
+	playedFrac := (homeFpts + awayFpts) / (homeProj + awayProj)
+	s := 1 - playedFrac + slack
+	if s > 1 {
+		s = 1
+	}
+
+	dh := homeProj + homeFpts*actualWeight
+	da := awayProj + awayFpts*actualWeight
+	vh := dh / (dh + da)
+	va := 1 - vh
+
+	exp := (1 / s) * pow
+	kh := math.Pow(vh, exp)
+	ka := math.Pow(va, exp)
+	p := kh / (kh + ka)
+
+	if p >= 0.495 && p <= 0.505 && p != 0.5 {
+		if p > 0.5 {
+			p = 0.51
+		} else {
+			p = 0.49
+		}
+	}
+
+	hp := int(math.Round(p * 100))
+	return hp, 100 - hp
+}
 
 // WPInputs is the per-matchup data needed to compute a WP curve. All slices
 // are length 7 (one per day in the matchup week).
@@ -21,8 +79,8 @@ type WPInputs struct {
 }
 
 // ComputeWPCurve returns the 8-point WP trace for one matchup using the same
-// formula the Fantrax UI runs client-side (ported as
-// models.CalculateWinProbability). Points[0] is the pre-week baseline,
+// formula the Fantrax UI runs client-side (see calculateWinProbability
+// in this file). Points[0] is the pre-week baseline,
 // derived from the projection ratio alone (so a 60/40 projected favorite
 // starts at ~84/16, not 50/50). Points[1..7] are end-of-Day-i states using
 // cumulative actuals, a *live-adjusted* weekly projection
@@ -56,7 +114,7 @@ func ComputeWPCurve(in WPInputs) MatchupWPCurve {
 		homeProj := hSum + float64(daysLeft)*in.HomeMeanDaily
 		awayProj := aSum + float64(daysLeft)*in.AwayMeanDaily
 
-		hp, _ := models.CalculateWinProbability(hSum, aSum, homeProj, awayProj, daysLeft, daysLeft)
+		hp, _ := calculateWinProbability(hSum, aSum, homeProj, awayProj, daysLeft, daysLeft)
 
 		// Date semantics: Points[0] uses the first matchup day's date as a
 		// stand-in (the chart treats it as the leftmost X-axis tick);
