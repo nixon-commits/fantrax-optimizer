@@ -146,6 +146,10 @@ The optimizer must produce identical output given the same inputs. Key invariant
 - **Period-specific roster**: for future dates, the optimizer fetches the roster for that period (`GetHitterRosterForPeriod`) so it sees already-applied lineups. A second run with the same inputs produces "No changes needed".
 - **Verification**: after any optimizer change, run the command twice with the same inputs and confirm the second run shows "No changes needed" for all dates.
 
+## Local module overrides
+
+`go.mod` may carry a `replace github.com/pmurley/go-fantrax => github.com/nixon-commits/go-fantrax <pseudo-version>` directive while a `go-fantrax` change is in flight. The override points at a pushed commit on the `nixon-commits` fork — works on CI because it resolves to a real remote ref, not a filesystem path. Don't replace with a local-filesystem path (`=> /Users/jnixon/go-fantrax`); GHA can't see it. To bump after a new go-fantrax commit: `cd /Users/jnixon/go-fantrax && git push -u fork <branch>`, then in rosterbot run `go mod edit -replace=github.com/pmurley/go-fantrax=github.com/nixon-commits/go-fantrax@<branch-or-sha> && go mod tidy`. Remove the `replace` and bump the `require` line back to a real published version once the upstream `pmurley/go-fantrax` PR merges and tags a release.
+
 ## Claude Code Agents
 
 Specialized agents are available for this project:
