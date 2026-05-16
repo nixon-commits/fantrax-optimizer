@@ -98,7 +98,6 @@ type Awards struct {
 	WorstSingleStart *PitcherStartLine `json:"worst_single_start,omitempty"`
 	TopBatters       []PlayerLine      `json:"top_batters,omitempty"`
 	TopPitchers      []PlayerLine      `json:"top_pitchers,omitempty"`
-	HeartAttack      *MatchupResult    `json:"heart_attack,omitempty"`
 	Comeback         *MatchupTeamSide  `json:"comeback,omitempty"`
 	GameOfWeek       *MatchupResult    `json:"game_of_week,omitempty"`
 }
@@ -158,13 +157,4 @@ type WPPoint struct {
 	HomeWP      float64   `json:"home_wp"`      // home win probability in [0, 1]
 	HomeRunning float64   `json:"home_running"` // home cumulative FPts through Date
 	AwayRunning float64   `json:"away_running"` // away cumulative FPts through Date
-}
-
-// TeamDay is one team's total FPts on a single day. Used for the Whale
-// award (highest team-day across the league).
-type TeamDay struct {
-	TeamID   string    `json:"team_id"`
-	TeamName string    `json:"team_name"`
-	Date     time.Time `json:"date"`
-	Pts      float64   `json:"pts"`
 }

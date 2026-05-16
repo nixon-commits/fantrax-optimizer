@@ -110,8 +110,6 @@ func awardEmoji(name string) string {
 		return "🔥"
 	case AwardWorstStart:
 		return "💣"
-	case AwardHeartAttack:
-		return "💓"
 	case AwardComeback:
 		return "↩️"
 	}

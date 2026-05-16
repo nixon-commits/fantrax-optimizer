@@ -405,7 +405,9 @@ func TestAggregateSeasonAwards_NilRecapInSlice(t *testing.T) {
 	}
 }
 
-func TestHeartAttack(t *testing.T) {
+func TestGameOfTheWeek_LeadChangesWin(t *testing.T) {
+	// Curve "mid" has 6 lead changes; "low" has 1. Lead changes dominate
+	// even when the deeper-comeback matchup has bigger margin swing.
 	low := []WPPoint{
 		{HomeWP: 0.5}, {HomeWP: 0.4}, {HomeWP: 0.3}, {HomeWP: 0.2},
 		{HomeWP: 0.15}, {HomeWP: 0.1}, {HomeWP: 0.05}, {HomeWP: 0.0},
@@ -425,19 +427,56 @@ func TestHeartAttack(t *testing.T) {
 		mr("E", "F", 90, 120),
 	}
 
-	got := HeartAttack(curves, matchups)
+	got := GameOfTheWeek(curves, matchups)
 	if got == nil || got.HomeTeamID != "C" {
-		t.Fatalf("HeartAttack: want C-D, got %+v", got)
+		t.Fatalf("GameOfTheWeek: want C-D, got %+v", got)
 	}
 }
 
-func TestHeartAttackNoLeadChanges(t *testing.T) {
-	curves := []MatchupWPCurve{
-		{HomeTeamID: "A", AwayTeamID: "B", LeadChanges: 0},
+func TestGameOfTheWeek_AlwaysReturns(t *testing.T) {
+	// Two blowouts with no lead changes — formula must still pick a winner.
+	// Tiebreak: smaller margin → home TeamID asc. Both have minWinnerWP=0.5
+	// (so the comeback term contributes 0.5 to each — equal).
+	flat := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.55}, {HomeWP: 0.6}, {HomeWP: 0.65},
+		{HomeWP: 0.7}, {HomeWP: 0.8}, {HomeWP: 0.9}, {HomeWP: 1.0},
 	}
-	matchups := []MatchupResult{mr("A", "B", 100, 90)}
-	if got := HeartAttack(curves, matchups); got != nil {
-		t.Errorf("HeartAttack: want nil when no lead changes, got %+v", got)
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", Points: flat, LeadChanges: 0},
+		{HomeTeamID: "C", AwayTeamID: "D", Points: flat, LeadChanges: 0},
+	}
+	matchups := []MatchupResult{
+		mr("A", "B", 200, 100), // margin 100
+		mr("C", "D", 110, 100), // margin 10 ← closer
+	}
+	got := GameOfTheWeek(curves, matchups)
+	if got == nil || got.HomeTeamID != "C" {
+		t.Fatalf("GameOfTheWeek: want C-D (closer margin), got %+v", got)
+	}
+}
+
+func TestGameOfTheWeek_ComebackBreaksLeadTie(t *testing.T) {
+	// Two matchups, both with 1 lead change. The eventual winner in matchup
+	// A sank to 0.10 (deep comeback); in matchup C, only to 0.40. A wins.
+	deep := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.4}, {HomeWP: 0.2}, {HomeWP: 0.1},
+		{HomeWP: 0.3}, {HomeWP: 0.55}, {HomeWP: 0.75}, {HomeWP: 1.0},
+	}
+	shallow := []WPPoint{
+		{HomeWP: 0.5}, {HomeWP: 0.45}, {HomeWP: 0.40}, {HomeWP: 0.42},
+		{HomeWP: 0.55}, {HomeWP: 0.7}, {HomeWP: 0.85}, {HomeWP: 1.0},
+	}
+	curves := []MatchupWPCurve{
+		{HomeTeamID: "A", AwayTeamID: "B", Points: deep, LeadChanges: 1},
+		{HomeTeamID: "C", AwayTeamID: "D", Points: shallow, LeadChanges: 1},
+	}
+	matchups := []MatchupResult{
+		mr("A", "B", 110, 100),
+		mr("C", "D", 110, 100),
+	}
+	got := GameOfTheWeek(curves, matchups)
+	if got == nil || got.HomeTeamID != "A" {
+		t.Fatalf("GameOfTheWeek: want A-B (deeper comeback), got %+v", got)
 	}
 }
 
@@ -489,8 +528,7 @@ func TestAggregateSeasonAwards_NewCategories(t *testing.T) {
 			{TeamID: "2", TeamName: "Sliders"},
 		},
 		Awards: Awards{
-			HeartAttack: &MatchupResult{HomeTeamID: "1", AwayTeamID: "2", WinnerID: "1"},
-			Comeback:    &MatchupTeamSide{TeamID: "1", TeamName: "Wahoos"},
+			Comeback: &MatchupTeamSide{TeamID: "1", TeamName: "Wahoos"},
 		},
 	}
 	snaps := AggregateSeasonAwards([]*Recap{r})
@@ -510,10 +548,6 @@ func TestAggregateSeasonAwards_NewCategories(t *testing.T) {
 		if got[k] != v {
 			t.Errorf("%s: want team %q, got %q", k, v, got[k])
 		}
-	}
-	// Heart Attack is intentionally NOT in the season leaderboard.
-	if _, present := got[AwardHeartAttack]; present {
-		t.Errorf("Heart Attack should not appear in season leaderboard, got team %q", got[AwardHeartAttack])
 	}
 }
 
