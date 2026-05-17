@@ -116,13 +116,8 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 	// label just won't render.
 	annotateOpponents(allStarts, opts.CacheDir)
 
-	// Build per-day per-team totals for the WP simulation σ.
-	dayTotals := buildTeamDays(results, teamMap)
-
 	// Pivot per-team daily home/away actuals keyed by team for WP curves.
 	teamDailyByID := dailyByTeam(results)
-
-	sigma := LeagueDailySigma(dayTotals)
 
 	// Stable sort by efficiency descending so the rendered "Team Performance"
 	// table always reads top-to-bottom by efficiency.
@@ -181,37 +176,33 @@ func Run(ft *fantrax.Client, opts Options) (*Recap, error) {
 	seasonMeans := fetchSeasonMeans(ft, teamMap, seasonStart, asOf, opts.CacheDir, opts.CacheTTL, opts.Concurrency)
 
 	var curves []MatchupWPCurve
-	if sigma > 0 {
-		for _, m := range matchups {
-			h := teamDailyByID[m.HomeTeamID]
-			a := teamDailyByID[m.AwayTeamID]
-			if len(h.Actuals) != 7 || len(a.Actuals) != 7 {
-				continue
-			}
-			hMean := seasonMeans[m.HomeTeamID]
-			if hMean == 0 {
-				hMean = mean(h.Actuals)
-			}
-			aMean := seasonMeans[m.AwayTeamID]
-			if aMean == 0 {
-				aMean = mean(a.Actuals)
-			}
-			curve := ComputeWPCurve(WPInputs{
-				HomeTeamID:    m.HomeTeamID,
-				AwayTeamID:    m.AwayTeamID,
-				HomeMeanDaily: hMean,
-				AwayMeanDaily: aMean,
-				Sigma:         sigma,
-				Dates:         h.Dates,
-				HomeActuals:   h.Actuals,
-				AwayActuals:   a.Actuals,
-				WeekNumber:    weekNum,
-			})
-			curves = append(curves, curve)
+	for _, m := range matchups {
+		h := teamDailyByID[m.HomeTeamID]
+		a := teamDailyByID[m.AwayTeamID]
+		if len(h.Actuals) != 7 || len(a.Actuals) != 7 {
+			continue
 		}
+		hMean := seasonMeans[m.HomeTeamID]
+		if hMean == 0 {
+			hMean = mean(h.Actuals)
+		}
+		aMean := seasonMeans[m.AwayTeamID]
+		if aMean == 0 {
+			aMean = mean(a.Actuals)
+		}
+		curve := ComputeWPCurve(WPInputs{
+			HomeTeamID:    m.HomeTeamID,
+			AwayTeamID:    m.AwayTeamID,
+			HomeMeanDaily: hMean,
+			AwayMeanDaily: aMean,
+			Dates:         h.Dates,
+			HomeActuals:   h.Actuals,
+			AwayActuals:   a.Actuals,
+			WeekNumber:    weekNum,
+		})
+		curves = append(curves, curve)
 	}
-	awards.HeartAttack = HeartAttack(curves, matchups)
-	awards.GameOfWeek = awards.HeartAttack
+	awards.GameOfWeek = GameOfTheWeek(curves, matchups)
 	awards.Comeback = Comeback(curves, matchups)
 
 	return &Recap{
@@ -497,38 +488,6 @@ func uniqueDates(lines []PlayerLine) []time.Time {
 		out = append(out, t)
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Before(out[j]) })
-	return out
-}
-
-// buildTeamDays produces one TeamDay per (team, date) pair across all teams.
-// Used as input to LeagueDailySigma for WP variance.
-func buildTeamDays(results map[string]*teamData, teamMap map[string]string) []TeamDay {
-	var out []TeamDay
-	for teamID, td := range results {
-		byDate := map[string]float64{}
-		dates := map[string]time.Time{}
-		for _, p := range td.active {
-			key := p.Date.Format("2006-01-02")
-			byDate[key] += p.FPts
-			dates[key] = p.Date
-		}
-		name := teamMap[teamID]
-		for key, pts := range byDate {
-			out = append(out, TeamDay{
-				TeamID:   teamID,
-				TeamName: name,
-				Date:     dates[key],
-				Pts:      pts,
-			})
-		}
-	}
-	// Stable order for determinism.
-	sort.SliceStable(out, func(i, j int) bool {
-		if !out[i].Date.Equal(out[j].Date) {
-			return out[i].Date.Before(out[j].Date)
-		}
-		return out[i].TeamID < out[j].TeamID
-	})
 	return out
 }
 

@@ -7,26 +7,6 @@ import (
 	"time"
 )
 
-func TestLeagueDailySigma(t *testing.T) {
-	// Three points: 10, 20, 30 → mean=20, sample var=100, σ=10
-	days := []TeamDay{
-		{Pts: 10}, {Pts: 20}, {Pts: 30},
-	}
-	got := LeagueDailySigma(days)
-	if math.Abs(got-10.0) > 1e-9 {
-		t.Errorf("LeagueDailySigma: want 10, got %.6f", got)
-	}
-}
-
-func TestLeagueDailySigmaTooFew(t *testing.T) {
-	if got := LeagueDailySigma(nil); got != 0 {
-		t.Errorf("nil → want 0, got %.6f", got)
-	}
-	if got := LeagueDailySigma([]TeamDay{{Pts: 50}}); got != 0 {
-		t.Errorf("len=1 → want 0, got %.6f", got)
-	}
-}
-
 func makeDates(start time.Time) []time.Time {
 	out := make([]time.Time, 7)
 	for i := 0; i < 7; i++ {
@@ -37,16 +17,14 @@ func makeDates(start time.Time) []time.Time {
 
 func TestComputeWPCurve_HomeDominates(t *testing.T) {
 	start := time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC)
-	dates := makeDates(start)
 	in := WPInputs{
 		HomeTeamID:    "A",
 		AwayTeamID:    "B",
 		HomeMeanDaily: 60,
 		AwayMeanDaily: 40,
-		Sigma:         15,
-		Dates:         dates,
-		HomeActuals:   []float64{60, 60, 60, 60, 60, 60, 60}, // 420
-		AwayActuals:   []float64{40, 40, 40, 40, 40, 40, 40}, // 280
+		Dates:         makeDates(start),
+		HomeActuals:   []float64{60, 60, 60, 60, 60, 60, 60}, // 420 total
+		AwayActuals:   []float64{40, 40, 40, 40, 40, 40, 40}, // 280 total
 		WeekNumber:    1,
 	}
 	curve := ComputeWPCurve(in)
@@ -54,6 +32,13 @@ func TestComputeWPCurve_HomeDominates(t *testing.T) {
 	if len(curve.Points) != 8 {
 		t.Fatalf("Points: want 8, got %d", len(curve.Points))
 	}
+
+	// Pre-week WP reflects projection ratio: projH=420, projA=280, Vh=0.6.
+	// p = 0.6^4 / (0.6^4 + 0.4^4) = 0.1296 / 0.1552 ≈ 0.835 → 84%.
+	if got := curve.Points[0].HomeWP; math.Abs(got-0.84) > 1e-9 {
+		t.Errorf("pre-week HomeWP: want 0.84 (projection-weighted), got %.4f", got)
+	}
+
 	final := curve.Points[7]
 	if final.HomeWP != 1.0 {
 		t.Errorf("final HomeWP: want 1.0, got %.4f", final.HomeWP)
@@ -64,6 +49,7 @@ func TestComputeWPCurve_HomeDominates(t *testing.T) {
 	if final.AwayRunning != 280 {
 		t.Errorf("final AwayRunning: want 280, got %.2f", final.AwayRunning)
 	}
+
 	// Curve should monotonically increase as home dominates from start.
 	for i := 1; i < 8; i++ {
 		if curve.Points[i].HomeWP < curve.Points[i-1].HomeWP-1e-6 {
@@ -73,22 +59,30 @@ func TestComputeWPCurve_HomeDominates(t *testing.T) {
 	}
 }
 
-func TestComputeWPCurve_TiedFinalIsHalf(t *testing.T) {
+func TestComputeWPCurve_EqualProjections(t *testing.T) {
 	start := time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC)
 	in := WPInputs{
 		HomeTeamID:    "A",
 		AwayTeamID:    "B",
 		HomeMeanDaily: 50,
 		AwayMeanDaily: 50,
-		Sigma:         20,
 		Dates:         makeDates(start),
 		HomeActuals:   []float64{50, 50, 50, 50, 50, 50, 50},
 		AwayActuals:   []float64{50, 50, 50, 50, 50, 50, 50},
 		WeekNumber:    1,
 	}
 	curve := ComputeWPCurve(in)
-	if final := curve.Points[7].HomeWP; final != 0.5 {
-		t.Errorf("tied final: want 0.5, got %.4f", final)
+
+	// Equal projections + identical actuals → flat 50/50 through Day 6.
+	for i := 0; i <= 6; i++ {
+		if got := curve.Points[i].HomeWP; got != 0.5 {
+			t.Errorf("Points[%d].HomeWP: want 0.5, got %.4f", i, got)
+		}
+	}
+	// Faithful port of the Fantrax formula: at timeLeft=(0,0), it returns
+	// (100, 0) iff homeFpts > awayFpts; on exact tie it gives away the win.
+	if got := curve.Points[7].HomeWP; got != 0.0 {
+		t.Errorf("tied final HomeWP: Fantrax formula gives the tie to away, want 0.0 got %.4f", got)
 	}
 }
 
@@ -99,7 +93,6 @@ func TestComputeWPCurve_Determinism(t *testing.T) {
 		AwayTeamID:    "B",
 		HomeMeanDaily: 55,
 		AwayMeanDaily: 50,
-		Sigma:         18,
 		Dates:         makeDates(start),
 		HomeActuals:   []float64{55, 50, 60, 45, 55, 50, 60},
 		AwayActuals:   []float64{50, 55, 45, 60, 50, 55, 45},

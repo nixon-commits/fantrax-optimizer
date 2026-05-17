@@ -102,8 +102,6 @@
     .award-grid, .pitcher-grid, .leaders { grid-template-columns: 1fr; }
   }
   .game-of-week { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
-  .game-of-week .gw-head { margin-bottom: 10px; }
-  .game-of-week .gw-badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; background: var(--accent-soft); color: var(--accent); }
   .game-of-week .gw-scores { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
   .game-of-week .gw-team { display: flex; flex-direction: column; }
   .game-of-week .gw-team.away { text-align: right; }
@@ -168,9 +166,6 @@
 <section>
   <h2>Game of the Week</h2>
   <div class="game-of-week">
-    <div class="gw-head">
-      <span class="gw-badge">💓 Heart Attack</span>
-    </div>
     <div class="gw-scores">
       <div class="gw-team home">
         {{- $hLogo := teamLogo $.LogoURLs .GameOfWeek.HomeTeamID}}
@@ -393,7 +388,7 @@
 
 <section>
   <h2>Matchup Results</h2>
-  {{- $heart := .Awards.HeartAttack}}
+  {{- $gow := .Awards.GameOfWeek}}
   {{- $comeback := .Awards.Comeback}}
   {{- range .Matchups}}
   {{- $curve := curveForMatchup $.WPCurves .}}
@@ -417,8 +412,8 @@
         <path d="{{sparkPath $curve}}" stroke="var(--accent)" stroke-width="1.5" fill="none"/>
       </svg>
       {{- end}}
-      {{- if and $heart (eq $heart.HomeTeamID .HomeTeamID) (eq $heart.AwayTeamID .AwayTeamID)}}
-      <span class="mu-badge">💓</span>
+      {{- if and $gow (eq $gow.HomeTeamID .HomeTeamID) (eq $gow.AwayTeamID .AwayTeamID)}}
+      <span class="mu-badge">⭐</span>
       {{- end}}
     </div>
     <div class="team home {{matchupSideClass . .HomeTeamID}}">

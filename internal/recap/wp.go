@@ -1,48 +1,68 @@
 package recap
 
 import (
-	"hash/fnv"
 	"math"
-	"math/rand"
-	"strconv"
 	"time"
 )
 
-// wpNumSims is the Monte Carlo iteration count per WP point. 5000 gives a
-// standard error of ~0.007 at p=0.5 — invisible at chart resolution.
-const wpNumSims = 5000
+// calculateWinProbability is the Go port of the WP formula Fantrax runs
+// client-side in its live-scoring Angular bundle (chunk-5QCCTEMV.js's
+// `calculateWinProbability` function). Returns home/away percentages in
+// [0, 100] that sum to 100.
+//
+// Reverse-engineered constants — power=4, slack=0.08, actualWeight=0.05 —
+// match Fantrax's published behavior. Edge cases mirror the JS exactly:
+// zero projections → 50/50, both teams out of games → winner takes 100%,
+// values close-to-but-not-exactly 50/50 are nudged to 51/49.
+//
+// Inputs:
+//
+//	homeFpts, awayFpts          — points scored so far this period
+//	homeProj, awayProj          — projected period totals
+//	homeTimeLeft, awayTimeLeft  — games remaining for each team this period
+func calculateWinProbability(homeFpts, awayFpts, homeProj, awayProj float64, homeTimeLeft, awayTimeLeft int) (homePct, awayPct int) {
+	if homeProj == 0 && awayProj == 0 {
+		return 50, 50
+	}
+	if homeTimeLeft == 0 && awayTimeLeft == 0 {
+		if homeFpts > awayFpts {
+			return 100, 0
+		}
+		return 0, 100
+	}
 
-// LeagueDailySigma returns the sample standard deviation of daily team
-// scores. Returns 0 for fewer than 2 points (caller should treat as
-// "WP simulation unavailable" and skip the curve).
-func LeagueDailySigma(days []TeamDay) float64 {
-	n := len(days)
-	if n < 2 {
-		return 0
-	}
-	var sum float64
-	for _, d := range days {
-		sum += d.Pts
-	}
-	mean := sum / float64(n)
-	var ss float64
-	for _, d := range days {
-		dev := d.Pts - mean
-		ss += dev * dev
-	}
-	return math.Sqrt(ss / float64(n-1))
-}
+	const (
+		pow          = 4.0
+		slack        = 0.08
+		actualWeight = 0.05
+	)
 
-// wpRNG returns a deterministic *rand.Rand seeded from the matchup identity
-// + week number, so every run produces identical curves.
-func wpRNG(homeID, awayID string, week int) *rand.Rand {
-	h := fnv.New64a()
-	h.Write([]byte(homeID))
-	h.Write([]byte("|"))
-	h.Write([]byte(awayID))
-	h.Write([]byte("|"))
-	h.Write([]byte(strconv.Itoa(week)))
-	return rand.New(rand.NewSource(int64(h.Sum64())))
+	playedFrac := (homeFpts + awayFpts) / (homeProj + awayProj)
+	s := 1 - playedFrac + slack
+	if s > 1 {
+		s = 1
+	}
+
+	dh := homeProj + homeFpts*actualWeight
+	da := awayProj + awayFpts*actualWeight
+	vh := dh / (dh + da)
+	va := 1 - vh
+
+	exp := (1 / s) * pow
+	kh := math.Pow(vh, exp)
+	ka := math.Pow(va, exp)
+	p := kh / (kh + ka)
+
+	if p >= 0.495 && p <= 0.505 && p != 0.5 {
+		if p > 0.5 {
+			p = 0.51
+		} else {
+			p = 0.49
+		}
+	}
+
+	hp := int(math.Round(p * 100))
+	return hp, 100 - hp
 }
 
 // WPInputs is the per-matchup data needed to compute a WP curve. All slices
@@ -50,29 +70,35 @@ func wpRNG(homeID, awayID string, week int) *rand.Rand {
 type WPInputs struct {
 	HomeTeamID    string
 	AwayTeamID    string
-	HomeMeanDaily float64     // expected daily FPts for home
+	HomeMeanDaily float64     // expected daily FPts for home (drives weekly projection)
 	AwayMeanDaily float64     // expected daily FPts for away
-	Sigma         float64     // league-wide daily-score stddev
 	Dates         []time.Time // length 7, one per matchup day (chronological)
 	HomeActuals   []float64   // length 7, observed home FPts per day
 	AwayActuals   []float64   // length 7, observed away FPts per day
-	WeekNumber    int         // for RNG seed
+	WeekNumber    int         // carried through for output identification
 }
 
-// ComputeWPCurve returns the 8-point WP trace for one matchup. Points[0] is
-// the pre-week baseline (always 0.5 — equal teams projected forward by
-// definition); Points[1..7] are end-of-Day-i states using observed actuals
-// + Monte Carlo projection of remaining days.
+// ComputeWPCurve returns the 8-point WP trace for one matchup using the same
+// formula the Fantrax UI runs client-side (see calculateWinProbability
+// in this file). Points[0] is the pre-week baseline,
+// derived from the projection ratio alone (so a 60/40 projected favorite
+// starts at ~84/16, not 50/50). Points[1..7] are end-of-Day-i states using
+// cumulative actuals, a *live-adjusted* weekly projection
+// (`actual_so_far + remaining_days × HomeMeanDaily`, mirroring how Fantrax
+// recomputes `calculatedProjectedTotalsMap` intra-week), and a uniform
+// `games left = 7 - i` assumption for both teams. Without the live
+// adjustment, two teams with similar season averages would have an
+// identically-balanced projection ratio every day and the chart would be
+// flat at 50% mid-week.
 //
-// Determinism: identical inputs always produce identical curves (RNG seeded
-// from match identity + week number).
+// The formula is pure and deterministic; identical inputs always produce
+// identical curves.
 func ComputeWPCurve(in WPInputs) MatchupWPCurve {
 	if len(in.Dates) != 7 || len(in.HomeActuals) != 7 || len(in.AwayActuals) != 7 {
 		// Degenerate inputs — return an empty curve. The orchestrator
 		// soft-fails by hiding charts/sparklines.
 		return MatchupWPCurve{HomeTeamID: in.HomeTeamID, AwayTeamID: in.AwayTeamID}
 	}
-	rng := wpRNG(in.HomeTeamID, in.AwayTeamID, in.WeekNumber)
 
 	points := make([]WPPoint, 8)
 	var hSum, aSum float64
@@ -83,32 +109,12 @@ func ComputeWPCurve(in WPInputs) MatchupWPCurve {
 		}
 		daysLeft := 7 - i
 
-		var wp float64
-		switch {
-		case daysLeft == 0:
-			switch {
-			case hSum > aSum:
-				wp = 1.0
-			case hSum < aSum:
-				wp = 0.0
-			default:
-				wp = 0.5
-			}
-		default:
-			wins := 0
-			for s := 0; s < wpNumSims; s++ {
-				simH := hSum
-				simA := aSum
-				for d := 0; d < daysLeft; d++ {
-					simH += rng.NormFloat64()*in.Sigma + in.HomeMeanDaily
-					simA += rng.NormFloat64()*in.Sigma + in.AwayMeanDaily
-				}
-				if simH > simA {
-					wins++
-				}
-			}
-			wp = float64(wins) / float64(wpNumSims)
-		}
+		// Live-adjusted projection: locked-in points + remaining-day rate.
+		// At i=0 reduces to mean × 7; at i=7 reduces to the actual total.
+		homeProj := hSum + float64(daysLeft)*in.HomeMeanDaily
+		awayProj := aSum + float64(daysLeft)*in.AwayMeanDaily
+
+		hp, _ := calculateWinProbability(hSum, aSum, homeProj, awayProj, daysLeft, daysLeft)
 
 		// Date semantics: Points[0] uses the first matchup day's date as a
 		// stand-in (the chart treats it as the leftmost X-axis tick);
@@ -121,7 +127,7 @@ func ComputeWPCurve(in WPInputs) MatchupWPCurve {
 		}
 		points[i] = WPPoint{
 			Date:        date,
-			HomeWP:      wp,
+			HomeWP:      float64(hp) / 100.0,
 			HomeRunning: hSum,
 			AwayRunning: aSum,
 		}

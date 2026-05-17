@@ -252,44 +252,58 @@ func pickStart(starts []PitcherStartLine, less func(a, b *PitcherStartLine) bool
 	return &out
 }
 
-// HeartAttack returns the matchup with the most lead changes in its WP
-// curve. Returns nil if no matchup has any lead changes (an "all-blowouts"
-// week — the recap will hide the Game of the Week section in that case).
+// GameOfTheWeek returns the matchup with the highest "weeeeeh factor" —
+// the one that delivered the most narrative drama. Score:
 //
-// matchups is the per-week MatchupResult list; curves are matched by
-// canonical team-pair key, so order is independent.
+//	score = LeadChanges + (1 - minWinnerWP)
 //
-// Tiebreak: smallest final margin → home TeamID asc.
-func HeartAttack(curves []MatchupWPCurve, matchups []MatchupResult) *MatchupResult {
-	if len(curves) == 0 || len(matchups) == 0 {
+// Lead changes (each crossing of the 0.5 line in the WP curve) capture
+// back-and-forth swings; (1 - minWinnerWP) rewards eventual winners who
+// were once "left for dead" mid-week. Tiebreak: smaller final margin →
+// lower home TeamID.
+//
+// Unlike the old HeartAttack award this always returns a result when any
+// matchups exist — even in a quiet week with zero lead changes, the
+// closest game (smallest margin) wins. matchups is the per-week list;
+// curves are matched by canonical team-pair key, so order is independent.
+// Ties are scored with the comeback term zeroed (no "winner" to measure).
+func GameOfTheWeek(curves []MatchupWPCurve, matchups []MatchupResult) *MatchupResult {
+	if len(matchups) == 0 {
 		return nil
 	}
-	mByPair := make(map[string]MatchupResult, len(matchups))
-	for _, m := range matchups {
-		mByPair[canonPair(m.HomeTeamID, m.AwayTeamID)] = m
+	cByPair := make(map[string]MatchupWPCurve, len(curves))
+	for _, c := range curves {
+		cByPair[canonPair(c.HomeTeamID, c.AwayTeamID)] = c
 	}
 
 	var best *MatchupResult
-	var bestChanges int
-	for _, c := range curves {
-		if c.LeadChanges == 0 {
-			continue
+	var bestScore float64
+	for i := range matchups {
+		m := matchups[i]
+		c, hasCurve := cByPair[canonPair(m.HomeTeamID, m.AwayTeamID)]
+
+		score := 0.0
+		if hasCurve {
+			score += float64(c.LeadChanges)
+			if !m.IsTie {
+				homeWon := m.WinnerID == m.HomeTeamID
+				if minWP, ok := MinWinnerWP(c.Points, homeWon); ok {
+					score += 1.0 - minWP
+				}
+			}
 		}
-		m, ok := mByPair[canonPair(c.HomeTeamID, c.AwayTeamID)]
-		if !ok {
-			continue
-		}
+
 		switch {
 		case best == nil:
-		case c.LeadChanges > bestChanges:
-		case c.LeadChanges == bestChanges && m.Margin < best.Margin:
-		case c.LeadChanges == bestChanges && m.Margin == best.Margin && m.HomeTeamID < best.HomeTeamID:
+		case score > bestScore:
+		case score == bestScore && m.Margin < best.Margin:
+		case score == bestScore && m.Margin == best.Margin && m.HomeTeamID < best.HomeTeamID:
 		default:
 			continue
 		}
 		copyM := m
 		best = &copyM
-		bestChanges = c.LeadChanges
+		bestScore = score
 	}
 	return best
 }
@@ -362,7 +376,6 @@ const (
 	AwardLowestPtsWin   = "Lowest Pts in Win"
 	AwardBestStart      = "Best Start"
 	AwardWorstStart     = "Worst Start"
-	AwardHeartAttack    = "Heart Attack"
 	AwardComeback       = "Comeback"
 )
 
@@ -370,13 +383,9 @@ const (
 // surfaced in the leaderboard.
 const SeasonShellingsLimit = 5
 
-// awardOrder controls the rendering order of categories in the season
-// leaderboard. Mirrors the per-week awards section in template.html.
 // awardOrder controls which categories appear in the season cumulative
-// leaderboard. Heart Attack is intentionally excluded — it doubles as the
-// Game of the Week selector at the top of each week's page, so cumulative
-// counts would be redundant. The per-week Heart Attack badge in Matchup
-// Results is unaffected (it reads from Awards.HeartAttack directly).
+// leaderboard. Game of the Week is intentionally excluded — it shows at
+// the top of each week's page, so cumulative counts would be redundant.
 var awardOrder = []string{
 	AwardMostEfficient,
 	AwardLeastEfficient,
@@ -474,9 +483,6 @@ func AggregateSeasonAwards(recaps []*Recap) []*SeasonAwards {
 			s := *a.WorstSingleStart
 			s.WeekNumber = r.WeekNumber
 			allShellings = append(allShellings, s)
-		}
-		if a.HeartAttack != nil {
-			add(AwardHeartAttack, a.HeartAttack.WinnerID)
 		}
 		if a.Comeback != nil {
 			add(AwardComeback, a.Comeback.TeamID)
