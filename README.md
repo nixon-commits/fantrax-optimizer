@@ -136,7 +136,6 @@ Matchup adjustments (opposing pitcher FIP + platoon splits) are layered on top.
 |---|---|---|
 | `GS_MAX` | 0 (disabled) | Max game starts per matchup week — used by optimizer (weekly GS budget) and gs-check (violation detection) |
 | `GS_MIN` | 0 (disabled) | Min game starts per matchup week — used by gs-check to flag teams below the floor |
-| `FANTRAX_COOKIES` | — | Raw `FX_RM` cookie value to skip browser login |
 | `PROSPECT_ROLLING_DAYS` | 14 | Days of MiLB stats for breakout detection |
 | `PROSPECT_MIN_GAMES` | 8 | Minimum games for prospect breakout eligibility |
 | `PROSPECT_RANK_CACHE_HOURS` | 168 | Hours to cache prospect rankings |
@@ -174,10 +173,11 @@ fresh data from each upstream. Useful if you suspect stale data or
 want to validate that a cache key is being populated correctly.
 
 The cache is just a directory — `rm -rf .cache/` is a safe reset.
-The next run repopulates everything on demand. Don't delete
-`.fantrax-cache/` (that's the auth session cookie, not the data
-cache; deleting it triggers a chromedp browser login on the next
-run).
+The next run repopulates everything on demand. Don't delete `.fantrax-cache/` (that's the auth session cookie, not
+the data cache; deleting it triggers a chromedp browser login on the
+next run). In GHA, `.fantrax-cache/` is persisted across all workflows
+via the shared `fantrax-session-` cache key so only the first daily run
+needs to do a full browser login.
 
 ## Automation
 

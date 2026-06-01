@@ -75,10 +75,10 @@ The matchups response is also memoized in-memory per `*fantrax.Client` (via `all
 
 **`internal/config`** — loads env vars via `godotenv`, validates that all four required vars are set, and returns a `Config` struct used by the CLI commands to wire everything together.
 
-**`internal/fantrax`** — wraps `github.com/pmurley/go-fantrax` (public read API) and `go-fantrax/auth_client` (authenticated API + lineup writes). Key details:
+**`internal/fantrax`** — wraps `github.com/pmurley/go-fantrax` (public read API) and `go-fantrax/auth_client` (authenticated API + lineup writes). The library is pinned via a `go.mod replace` directive to `./go-fantrax-fork`, a local fork of upstream v0.1.14. Key details:
 - `auth_client` uses chromedp (headless Chrome) to log in and obtain a session cookie. Cookie is cached in `.fantrax-cache/`. On first run or cache miss, a browser opens.
 - Credentials read from env: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`.
-- Alternatively, set `FANTRAX_COOKIES` to the raw `FX_RM` cookie value to skip browser login entirely.
+- **Fantrax API version** — every `/fxpa/req` POST body must include `"v": "<current>"`. The fork centralizes this in `fantraxAPIVersion` in `go-fantrax-fork/auth_client/fantrax_client.go`. When Fantrax deploys a new version and calls start returning `STALE_CLIENT` (empty `responses` array), probe the API with `curl` to find the new version string and update the constant. PR [pmurley/go-fantrax#3](https://github.com/pmurley/go-fantrax/pull/3) tracks the upstream fix; once merged, the fork can be dropped. Our own `gs_check.go` and `daily_fpts.go` also build `/fxpa/req` payloads directly — keep their `"v"` strings in sync.
 - **Position IDs are numeric strings** (`"001"` = C, `"002"` = 1B, `"003"` = 2B, `"004"` = 3B, `"005"` = SS, `"008"` = INF, `"012"` = OF, `"014"` = UT). These come from the roster API and must be used as-is for slot assignment and eligibility checks.
 - This league's active slot names: `C`, `1B`, `2B`, `3B`, `SS`, `INF`, `OF` (×4), `UT` (×3). Mapped in `posNameToID` in `client.go`.
 - Scoring group code is `BASEBALL_HITTING` (not `HITTING`).
@@ -164,7 +164,9 @@ When adding new commands, flags, env vars, or changing architecture, update `REA
 
 ## GHA
 
-`.github/workflows/lineup.yml` runs hourly during the active window — `cron: '0 14-23 * * *'` (6am–3pm PT) and `'0 0-3 * * *'` (4pm–7pm PT) — plus `workflow_dispatch`. Requires six repository secrets: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Optional: `GS_MAX` (game-start max), `GS_MIN` (game-start min). Chrome is installed via `browser-actions/setup-chrome@v2` before the Go run step. Invokes `optimize --matchup --archive-projections` so each run also writes `.backtest/snapshots/<YYYY-MM-DD>.json`. Uses `actions/cache@v4` with key prefix `projections-` and a multi-path config (`.cache` + `.backtest/snapshots`), so snapshots persist across runs and accumulate one per day.
+**Auth in GHA** — all six workflows install Chrome via `browser-actions/setup-chrome@v2` and restore/save `.fantrax-cache/` under the shared `fantrax-session-` cache key prefix. The first workflow that runs each day does a full chromedp browser login (15–20 s) and writes the session to the GHA cache; subsequent workflows restore the cached cookie and skip the browser. No `FANTRAX_COOKIES` secret is needed or used — the env var short-circuits the library's fallback chain and bypasses the browser login.
+
+`.github/workflows/lineup.yml` runs hourly during the active window — `cron: '0 14-23 * * *'` (6am–3pm PT) and `'0 0-3 * * *'` (4pm–7pm PT) — plus `workflow_dispatch`. Requires six repository secrets: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`, `FANTRAX_IL_SLOTS`, `FANTRAX_MINORS_SLOTS`. Optional: `GS_MAX` (game-start max), `GS_MIN` (game-start min). Invokes `optimize --matchup --archive-projections` so each run also writes `.backtest/snapshots/<YYYY-MM-DD>.json`. Uses `actions/cache@v4` with key prefix `projections-` and a multi-path config (`.cache` + `.backtest/snapshots`), so snapshots persist across runs and accumulate one per day.
 
 `.github/workflows/prospects.yml` runs daily at 11am UTC (7am ET) and on `workflow_dispatch`. Runs `prospects` to surface call-up alerts, hot streaks, and upgrade recommendations; pipes `[HIGH ...]` lines into a Pushover notification when present. Uses `actions/cache@v4` with key prefix `projections-`.
 

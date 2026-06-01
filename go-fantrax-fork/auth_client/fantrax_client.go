@@ -34,11 +34,14 @@ type Client struct {
 	UserInfo *models.UserInfo
 }
 
+// fantraxAPIVersion is the client version sent in every /fxpa/req payload.
+// Fantrax validates this server-side and returns STALE_CLIENT (empty responses)
+// when it is outdated. Update here when Fantrax deploys a new version.
 const fantraxAPIVersion = "180.0.0"
 
-// buildFullRequest wraps a msgs slice in the standard Fantrax request envelope
-// that includes the version field checked server-side. All API calls must use
-// this wrapper; omitting "v" (or using a stale value) returns STALE_CLIENT.
+// buildFullRequest wraps a msgs slice in the standard Fantrax /fxpa/req envelope.
+// All calls to /fxpa/req must use this wrapper — omitting "v" or using a stale
+// value triggers STALE_CLIENT responses with an empty responses array.
 func buildFullRequest(msgs []FantraxMessage, refUrl string) map[string]interface{} {
 	return map[string]interface{}{
 		"msgs":   msgs,

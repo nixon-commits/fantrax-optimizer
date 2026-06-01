@@ -28,7 +28,7 @@ func main() {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	fmt.Println("=== Simple Roster Editing Example ===\n")
+	fmt.Println("=== Simple Roster Editing Example ===")
 	fmt.Printf("League ID: %s\n", leagueID)
 	fmt.Printf("Logged in as: %s\n\n", client.UserInfo.Username)
 

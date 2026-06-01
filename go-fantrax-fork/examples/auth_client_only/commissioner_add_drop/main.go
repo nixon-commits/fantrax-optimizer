@@ -28,7 +28,7 @@ func main() {
 		log.Fatalf("Failed to create client: %v", err)
 	}
 
-	fmt.Println("=== Commissioner Add/Drop Example ===\n")
+	fmt.Println("=== Commissioner Add/Drop Example ===")
 	fmt.Printf("League ID: %s\n", leagueID)
 	fmt.Printf("Logged in as: %s\n", client.UserInfo.Username)
 	fmt.Printf("Target Team ID: %s\n\n", targetTeamID)
@@ -153,7 +153,7 @@ func main() {
 	} else {
 		fmt.Println("=== Example 1: Commissioner Add ===")
 		fmt.Println("Skipped: Set FANTRAX_PLAYER_ID_TO_ADD to test adding a player")
-		fmt.Println("Example: export FANTRAX_PLAYER_ID_TO_ADD=03pp9\n")
+		fmt.Println("Example: export FANTRAX_PLAYER_ID_TO_ADD=03pp9")
 	}
 
 	// Example 2: Commissioner Drop
@@ -271,7 +271,7 @@ func main() {
 	} else {
 		fmt.Println("=== Example 2: Commissioner Drop ===")
 		fmt.Println("Skipped: Set FANTRAX_PLAYER_ID_TO_DROP to test dropping a player")
-		fmt.Println("Example: export FANTRAX_PLAYER_ID_TO_DROP=03pp9\n")
+		fmt.Println("Example: export FANTRAX_PLAYER_ID_TO_DROP=03pp9")
 	}
 
 	// Cleanup: Drop any player that was added during testing
@@ -294,7 +294,7 @@ func main() {
 	// Summary
 	fmt.Println("=== Summary ===")
 	fmt.Println("This example demonstrates commissioner add/drop operations.")
-	fmt.Println("Note: These operations require a commissioner account.\n")
+	fmt.Println("Note: These operations require a commissioner account.")
 	fmt.Println("Available position constants:")
 	fmt.Printf("  - auth_client.PosC (Catcher): %s\n", auth_client.PosC)
 	fmt.Printf("  - auth_client.Pos1B (First Base): %s\n", auth_client.Pos1B)
