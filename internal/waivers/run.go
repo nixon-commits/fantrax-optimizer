@@ -601,9 +601,23 @@ func writeGHASummary(r Report, path string) {
 // Pushover
 // ---------------------------------------------------------------------------
 
+// signalEmoji returns a compact emoji for each signal type.
+func signalEmoji(s Signal) string {
+	switch s {
+	case SignalHot:
+		return "🔥"
+	case SignalBuyLow:
+		return "📉"
+	case SignalBoth:
+		return "⚡"
+	default:
+		return ""
+	}
+}
+
 // formatPushover builds an HTML-friendly body that fits Pushover's 1024-char
-// limit by progressively dropping rows until it fits. Each row is one line
-// describing a concrete swap: <signal> · add → drop · +gap.
+// limit. Each candidate is two lines: action (add → drop + FPG gain) and
+// evidence (stat details), separated by a blank line for scannability.
 func formatPushover(r Report) string {
 	if len(r.Top) == 0 {
 		return ""
@@ -611,13 +625,13 @@ func formatPushover(r Report) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "<b>Waiver Picks · %s</b>\n", r.Date.Format("Jan 2"))
 	for _, c := range r.Top {
-		line := fmt.Sprintf("%s · %s (%s) → drop %s · +%.2f FPG · %s\n",
-			c.Signal.String(), shortName(c.Name), c.MLBTeam,
+		action := fmt.Sprintf("\n%s <b>%s</b> (%s) → drop %s · +%.2f FPG\n%s\n",
+			signalEmoji(c.Signal), shortName(c.Name), c.MLBTeam,
 			shortName(c.DropName), c.Gap, candidateDetail(c))
-		if b.Len()+len(line) > 1000 {
+		if b.Len()+len(action) > 1000 {
 			break
 		}
-		b.WriteString(line)
+		b.WriteString(action)
 	}
 	if r.Total > len(r.Top) {
 		extra := fmt.Sprintf("+%d more", r.Total-len(r.Top))

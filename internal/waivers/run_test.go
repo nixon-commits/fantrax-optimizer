@@ -2,7 +2,9 @@ package waivers
 
 import (
 	"math"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/nixon-commits/rosterbot/internal/projections"
@@ -226,6 +228,32 @@ func TestPushoverFitsLimit(t *testing.T) {
 	}
 	if msg == "" {
 		t.Fatal("formatPushover returned empty")
+	}
+}
+
+func TestPushoverFormat_TwoLineStructure(t *testing.T) {
+	r := Report{
+		Date:  time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC),
+		Total: 2,
+		Top: []Candidate{
+			{Signal: SignalHot, Name: "Nathaniel Lowe", MLBTeam: "CIN", DropName: "Colt Emerson",
+				Gap: 0.77, HotHitter: HotHitterMetrics{Window14dWOBA: 0.387}, Barrel: 14.1, HardHit: 46},
+			{Signal: SignalBuyLow, Name: "Tyler Stephenson", MLBTeam: "CIN", DropName: "Colt Emerson",
+				Gap: 0.09, BuyLowDelta: 0.046, Barrel: 12.0, HardHit: 44},
+		},
+	}
+	msg := formatPushover(r)
+	if len(msg) > 1024 {
+		t.Fatalf("exceeded 1024 chars: %d", len(msg))
+	}
+	for _, want := range []string{"🔥", "📉", "<b>N. Lowe</b>", "<b>T. Stephenson</b>", "+0.77 FPG", "xwOBA"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("missing %q in:\n%s", want, msg)
+		}
+	}
+	// Action line and stat line must be separated by a newline for each candidate.
+	if strings.Count(msg, "\n") < 4 {
+		t.Errorf("expected at least 4 newlines for 2-line-per-candidate format, got:\n%s", msg)
 	}
 }
 
