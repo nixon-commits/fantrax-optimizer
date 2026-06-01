@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/nixon-commits/rosterbot/internal/cache"
 	"github.com/nixon-commits/rosterbot/internal/config"
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/spf13/cobra"
@@ -31,6 +32,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "print planned moves without applying them")
 	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false, "bypass file cache and fetch fresh data from APIs")
 	rootCmd.PersistentFlags().BoolVar(&verbose, "verbose", false, "show detailed log output instead of progress display")
+	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+		cache.Verbose = verbose
+	}
 }
 
 // Execute runs the root command.

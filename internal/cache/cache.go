@@ -15,6 +15,10 @@ type envelope[T any] struct {
 	Data      T         `json:"data"`
 }
 
+// Verbose controls whether cache hits and misses are logged to stderr.
+// Off by default; set to true via --verbose.
+var Verbose bool
+
 // FileCache provides TTL-based file caching for any JSON-serializable type.
 type FileCache[T any] struct {
 	dir string
@@ -35,10 +39,14 @@ func (c *FileCache[T]) Get(key string, fetch func() (T, error)) (T, error) {
 	// Try loading from cache (skip if TTL is 0).
 	if c.ttl > 0 {
 		if data, ok := c.load(path); ok {
-			fmt.Fprintf(os.Stderr, "cache hit: %s\n", key)
+			if Verbose {
+				fmt.Fprintf(os.Stderr, "cache hit: %s\n", key)
+			}
 			return data, nil
 		}
-		fmt.Fprintf(os.Stderr, "cache miss: %s (path=%s)\n", key, path)
+		if Verbose {
+			fmt.Fprintf(os.Stderr, "cache miss: %s (path=%s)\n", key, path)
+		}
 	}
 
 	// Cache miss or expired — fetch fresh data.
