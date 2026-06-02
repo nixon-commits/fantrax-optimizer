@@ -442,6 +442,58 @@
 {{- if .Season}}
 <section>
   <h2>Season Awards · Through Week {{.Season.ThroughWeek}}</h2>
+  {{- if .Season.StandingsHistory}}
+  {{- $hist := .Season.StandingsHistory}}
+  {{- $numWeeks := len $hist}}
+  {{- $numTeams := len (index $hist 0).Standings}}
+  {{- $padL := 8}}{{- $padR := 110}}{{- $padT := 24}}{{- $padB := 28}}
+  {{- $innerW := mul $numWeeks 52}}
+  {{- $innerH := mul $numTeams 22}}
+  {{- $svgW := add $innerW (add $padL $padR)}}
+  {{- $svgH := add $innerH (add $padT $padB)}}
+  <div class="season-cat" style="overflow-x:auto">
+    <h3><span class="icon">📈</span>Pole Position · Season Standings</h3>
+    <svg viewBox="0 0 {{$svgW}} {{$svgH}}" width="100%" style="max-width:{{$svgW}}px;display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">
+      {{- range $ri := rankRange $numTeams}}
+      {{- $y := add $padT (mul $ri 22)}}
+      <line x1="{{$padL}}" y1="{{$y}}" x2="{{add $padL $innerW}}" y2="{{$y}}" stroke="#243049" stroke-width="1"/>
+      <text x="{{sub $padL 4}}" y="{{add $y 4}}" text-anchor="end" font-size="9" fill="#8b9bbd">{{add $ri 1}}</text>
+      {{- end}}
+      {{- range $wi, $w := $hist}}
+      {{- $x := add $padL (mul $wi 52)}}
+      <text x="{{$x}}" y="{{sub $svgH 8}}" text-anchor="middle" font-size="9" fill="#8b9bbd">W{{$w.WeekNumber}}</text>
+      {{- end}}
+      {{- range $ti, $team := (index $hist (sub $numWeeks 1)).Standings}}
+      {{- $color := bumpColor $ti}}
+      {{- $isFirst := eq $team.Rank 1}}
+      <polyline
+        points="{{standingsPoints $hist $team.TeamID $padL $padT}}"
+        fill="none"
+        stroke="{{$color}}"
+        stroke-width="{{if $isFirst}}2.5{{else}}1.5{{end}}"
+        stroke-opacity="{{if $isFirst}}1{{else}}0.7{{end}}"
+        stroke-linejoin="round"
+        stroke-linecap="round"/>
+      {{- range $wi, $w := $hist}}
+      {{- range $s := $w.Standings}}{{if eq $s.TeamID $team.TeamID}}
+      {{- $cx := add $padL (mul $wi 52)}}
+      {{- $cy := add $padT (mul (sub $s.Rank 1) 22)}}
+      {{- if eq $wi (sub $numWeeks 1)}}
+      <text x="{{add $cx 8}}" y="{{add $cy 4}}" font-size="9.5" fill="{{$color}}" font-weight="{{if $isFirst}}700{{else}}400{{end}}">{{teamShort $team.TeamName}}</text>
+      {{- if eq $s.Rank 1}}<text x="{{add $cx 8}}" y="{{add $cy 15}}" font-size="8" fill="#fbbf24">{{$s.Wins}}W–{{$s.Losses}}L</text>{{end}}
+      {{- end}}
+      {{- end}}{{- end}}
+      {{- end}}
+      {{- end}}
+      {{- $lastWeek := index $hist (sub $numWeeks 1)}}
+      {{- range $s := $lastWeek.Standings}}{{if eq $s.Rank 1}}
+      {{- $cx := add $padL (mul (sub $numWeeks 1) 52)}}
+      {{- $cy := add $padT (mul (sub $s.Rank 1) 22)}}
+      <text x="{{$cx}}" y="{{sub $cy 6}}" text-anchor="middle" font-size="11">👑</text>
+      {{- end}}{{- end}}
+    </svg>
+  </div>
+  {{- end}}
   {{- range .Season.Categories}}
   <details class="season-cat">
     <summary>
@@ -482,66 +534,7 @@
     {{- end}}
   </details>
   {{- end}}
-  {{- if .Season.StandingsHistory}}
-  {{- $hist := .Season.StandingsHistory}}
-  {{- $numWeeks := len $hist}}
-  {{- $numTeams := len (index $hist 0).Standings}}
-  {{- $padL := 8}}{{- $padR := 110}}{{- $padT := 24}}{{- $padB := 28}}
-  {{- $innerW := mul $numWeeks 52}}
-  {{- $innerH := mul $numTeams 22}}
-  {{- $svgW := add $innerW (add $padL $padR)}}
-  {{- $svgH := add $innerH (add $padT $padB)}}
-  <div class="season-cat" style="overflow-x:auto">
-    <h3><span class="icon">📈</span>Pole Position · Season Standings</h3>
-    <svg viewBox="0 0 {{$svgW}} {{$svgH}}" width="100%" style="max-width:{{$svgW}}px;display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">
-      <!-- Rank grid lines -->
-      {{- range $ri := rankRange $numTeams}}
-      {{- $y := add $padT (mul $ri 22)}}
-      <line x1="{{$padL}}" y1="{{$y}}" x2="{{add $padL $innerW}}" y2="{{$y}}" stroke="#243049" stroke-width="1"/>
-      <text x="{{sub $padL 4}}" y="{{add $y 4}}" text-anchor="end" font-size="9" fill="#8b9bbd">{{add $ri 1}}</text>
-      {{- end}}
-      <!-- Week labels on X axis -->
-      {{- range $wi, $w := $hist}}
-      {{- $x := add $padL (mul $wi 52)}}
-      <text x="{{$x}}" y="{{sub $svgH 8}}" text-anchor="middle" font-size="9" fill="#8b9bbd">W{{$w.WeekNumber}}</text>
-      {{- end}}
-      <!-- Team lines and dots -->
-      {{- range $ti, $team := (index $hist (sub $numWeeks 1)).Standings}}
-      {{- $color := bumpColor $ti}}
-      {{- $isFirst := eq $team.Rank 1}}
-      <!-- polyline for this team -->
-      <polyline
-        points="{{standingsPoints $hist $team.TeamID $padL $padT}}"
-        fill="none"
-        stroke="{{$color}}"
-        stroke-width="{{if $isFirst}}2.5{{else}}1.5{{end}}"
-        stroke-opacity="{{if $isFirst}}1{{else}}0.7{{end}}"
-        stroke-linejoin="round"
-        stroke-linecap="round"/>
-      <!-- dots at each week -->
-      {{- range $wi, $w := $hist}}
-      {{- range $s := $w.Standings}}{{if eq $s.TeamID $team.TeamID}}
-      {{- $cx := add $padL (mul $wi 52)}}
-      {{- $cy := add $padT (mul (sub $s.Rank 1) 22)}}
-      <circle cx="{{$cx}}" cy="{{$cy}}" r="{{if $isFirst}}4{{else}}3{{end}}" fill="{{$color}}" opacity="{{if $isFirst}}1{{else}}0.85{{end}}"/>
-      {{- if eq $wi (sub $numWeeks 1)}}
-      <!-- label at end of line -->
-      <text x="{{add $cx 8}}" y="{{add $cy 4}}" font-size="9.5" fill="{{$color}}" font-weight="{{if $isFirst}}700{{else}}400{{end}}">{{teamShort $team.TeamName}}</text>
-      {{- if eq $s.Rank 1}}<text x="{{add $cx 8}}" y="{{add $cy 15}}" font-size="8" fill="#fbbf24">{{$s.Wins}}W–{{$s.Losses}}L</text>{{end}}
-      {{- end}}
-      {{- end}}{{- end}}
-      {{- end}}
-      {{- end}}
-      <!-- Gold crown on #1 at latest week -->
-      {{- $lastWeek := index $hist (sub $numWeeks 1)}}
-      {{- range $s := $lastWeek.Standings}}{{if eq $s.Rank 1}}
-      {{- $cx := add $padL (mul (sub $numWeeks 1) 52)}}
-      {{- $cy := add $padT (mul (sub $s.Rank 1) 22)}}
-      <text x="{{$cx}}" y="{{sub $cy 6}}" text-anchor="middle" font-size="11">👑</text>
-      {{- end}}{{- end}}
-    </svg>
-  </div>
-  {{- end}}
+
 </section>
 {{- end}}
 
