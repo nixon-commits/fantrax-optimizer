@@ -19,7 +19,7 @@ import (
 
 const (
 	defaultTopN     = 15
-	defaultCacheTTL = 12 * time.Hour
+	defaultCacheTTL = 24 * time.Hour
 	pushoverTitle   = "RosterBot: Waiver picks"
 )
 

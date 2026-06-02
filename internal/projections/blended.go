@@ -45,26 +45,31 @@ func (b *BlendedSource) GetProjection(name, mlbTeam string) (*Projection, bool) 
 // GetPtsPerGame returns blended FP/G using PA-based dynamic weights.
 // Falls back to 100% base projection if no recent data.
 func (b *BlendedSource) GetPtsPerGame(name, mlbTeam string, scoring fantrax.ScoringWeights) (float64, bool) {
-	proj, ok := b.inner.GetProjection(name, mlbTeam)
-	if !ok || proj.G <= 0 {
+	proj, hasProj := b.inner.GetProjection(name, mlbTeam)
+
+	playerID, idOK := b.nameToID[NormalizeName(name)]
+	var recent fantrax.RecentStat
+	var hasRecent bool
+	if idOK {
+		recent, hasRecent = b.recent[playerID]
+		hasRecent = hasRecent && recent.GamesPlayed >= b.minGP
+	}
+
+	if !hasProj || proj.G <= 0 {
+		// No base projection — use recent stats only if available.
+		if hasRecent {
+			return recent.FPtsPerGame, true
+		}
 		return 0, false
 	}
 
 	basePts := ExpectedPtsFromProj(proj, scoring)
-
-	playerID, idOK := b.nameToID[NormalizeName(name)]
-	if !idOK {
+	if !hasRecent {
 		return basePts, true
 	}
 
-	recent, statOK := b.recent[playerID]
-	if !statOK || recent.GamesPlayed < b.minGP {
-		return basePts, true
-	}
-
-	recentPtsPerGame := recent.FPtsPerGame
 	sw, rw := hitterBlendWeights(recent.GamesPlayed)
-	return sw*basePts + rw*recentPtsPerGame, true
+	return sw*basePts + rw*recent.FPtsPerGame, true
 }
 
 // hitterBlendWeights computes dynamic base/recent weights based on games played.

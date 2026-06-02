@@ -100,7 +100,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 	}
 
 	// Cache TTLs (0 when --no-cache is set).
-	projTTL := cacheTTL(12 * time.Hour)
+	projTTL := cacheTTL(24 * time.Hour)
 	staticTTL := cacheTTL(7 * 24 * time.Hour)
 
 	today := todayET()
@@ -184,11 +184,17 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 		sendOptimizeNotify(cfg.PushoverUserKey, cfg.PushoverAPIToken, msg)
 		return fmt.Errorf("batting projections unavailable: %w", err)
 	}
+	if batLoadResult.NoData {
+		prog.Logf("WARNING: batting projections unavailable — running on schedule + recent stats only")
+	}
 	fgPitSrc, pitLoadResult, err := projections.LoadPitcherProjections(projectionSystem, cacheDir, projTTL)
 	if err != nil {
 		msg := fmt.Sprintf("pitching projections unavailable: %v", err)
 		sendOptimizeNotify(cfg.PushoverUserKey, cfg.PushoverAPIToken, msg)
 		return fmt.Errorf("pitching projections unavailable: %w", err)
+	}
+	if pitLoadResult.NoData {
+		prog.Logf("WARNING: pitching projections unavailable — running on schedule + recent stats only")
 	}
 
 	prog.Header(projDisplayName[batLoadResult.System], formatDates(cfg.Dates), cfg.DryRun)

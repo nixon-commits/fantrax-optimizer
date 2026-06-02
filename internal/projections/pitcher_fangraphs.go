@@ -303,12 +303,13 @@ func LoadPitcherProjections(system, cacheDir string, ttl time.Duration) (*FanGra
 
 	// CSV fallback.
 	src, err := NewFanGraphsPitcherSourceFromCSV("fangraphs-leaderboard-projections_pitchers.csv")
-	if err != nil {
-		return nil, result, fmt.Errorf("all pitching projection sources unavailable: %w", err)
+	if err == nil && src.Len() > 0 {
+		result.FromCSV = true
+		return src, result, nil
 	}
-	if src.Len() == 0 {
-		return nil, result, fmt.Errorf("CSV pitching projections file is empty")
-	}
-	result.FromCSV = true
-	return src, result, nil
+
+	// All sources unavailable — return an empty stub so the optimizer can
+	// still run on schedule + recent-stats data.
+	result.NoData = true
+	return &FanGraphsPitcherSource{projections: make(map[string]*PitcherProjection)}, result, nil
 }

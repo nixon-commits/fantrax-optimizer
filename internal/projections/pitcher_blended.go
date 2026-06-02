@@ -52,30 +52,32 @@ func (b *PitcherBlendedSource) GetPitcherProjection(name, mlbTeam string) (*Pitc
 // GetPitcherPtsPerGame returns blended FP/G with role-aware dynamic weights.
 // Falls back to 100% base projection if no recent data or insufficient games.
 func (b *PitcherBlendedSource) GetPitcherPtsPerGame(name, mlbTeam string, scoring fantrax.ScoringWeights) (float64, bool) {
-	proj, ok := b.inner.GetPitcherProjection(name, mlbTeam)
-	if !ok || proj.G <= 0 {
+	proj, hasProj := b.inner.GetPitcherProjection(name, mlbTeam)
+
+	playerID, idOK := b.nameToID[NormalizeName(name)]
+	var recent fantrax.RecentStat
+	var hasRecent bool
+	if idOK {
+		recent, hasRecent = b.recent[playerID]
+		hasRecent = hasRecent && recent.GamesPlayed >= b.minGP
+	}
+
+	if !hasProj || proj.G <= 0 {
+		// No base projection — use recent stats only if available.
+		if hasRecent {
+			return recent.FPtsPerGame, true
+		}
 		return 0, false
 	}
 
 	basePts := PitcherExpectedPtsFromProj(proj, scoring)
-
-	playerID, idOK := b.nameToID[NormalizeName(name)]
-	if !idOK {
+	if !hasRecent {
 		return basePts, true
 	}
 
-	recent, statOK := b.recent[playerID]
-	if !statOK || recent.GamesPlayed < b.minGP {
-		return basePts, true
-	}
-
-	recentPtsPerGame := recent.FPtsPerGame
-
-	// Determine role from position eligibility, then compute dynamic weights.
 	isSP := isSPEligible(b.playerPos[playerID])
 	sw, rw := pitcherBlendWeights(recent.GamesPlayed, isSP)
-
-	return sw*basePts + rw*recentPtsPerGame, true
+	return sw*basePts + rw*recent.FPtsPerGame, true
 }
 
 // pitcherBlendWeights computes dynamic base/recent weights based on games played and role.

@@ -279,13 +279,19 @@ func TestLoadBattingProjections_ExplicitRoS_NoPreseasonFallback(t *testing.T) {
 
 	fgBaseURL = srv.URL + "?type=%s&stats=%s"
 
-	// Explicit RoS — should NOT fall back to preseason, should error (no CSV either).
-	_, result, err := LoadBattingProjections("depthcharts-ros", t.TempDir(), 0)
-	if err == nil {
-		t.Fatal("expected error when RoS is empty and no CSV")
+	// Explicit RoS — should NOT fall back to preseason; should return NoData stub, not error.
+	src, result, err := LoadBattingProjections("depthcharts-ros", t.TempDir(), 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.NoData {
+		t.Error("expected NoData=true when all sources unavailable")
 	}
 	if result.FellBack {
 		t.Error("explicit RoS should not set FellBack=true")
+	}
+	if src.Len() != 0 {
+		t.Errorf("expected empty stub source, got %d players", src.Len())
 	}
 }
 

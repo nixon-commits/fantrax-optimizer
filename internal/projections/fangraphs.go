@@ -325,6 +325,7 @@ type LoadResult struct {
 	System   string // The system that was actually loaded (e.g. "depthcharts-ros")
 	FellBack bool   // True if RoS was tried but empty, and preseason was used instead
 	FromCSV  bool   // True if loaded from CSV as last resort
+	NoData   bool   // True if all sources failed; source is an empty stub
 }
 
 // LoadBattingProjections tries to load batting projections with RoS-first priority.
@@ -371,12 +372,13 @@ func LoadBattingProjections(system, cacheDir string, ttl time.Duration) (*FanGra
 
 	// CSV fallback.
 	src, err := NewFanGraphsSourceFromCSV("fangraphs-leaderboard-projections_batters.csv")
-	if err != nil {
-		return nil, result, fmt.Errorf("all batting projection sources unavailable: %w", err)
+	if err == nil && src.Len() > 0 {
+		result.FromCSV = true
+		return src, result, nil
 	}
-	if src.Len() == 0 {
-		return nil, result, fmt.Errorf("CSV batting projections file is empty")
-	}
-	result.FromCSV = true
-	return src, result, nil
+
+	// All sources unavailable — return an empty stub so the optimizer can
+	// still run on schedule + recent-stats data.
+	result.NoData = true
+	return &FanGraphsSource{projections: make(map[string]*Projection), mlbamIDs: make(map[string]int)}, result, nil
 }
