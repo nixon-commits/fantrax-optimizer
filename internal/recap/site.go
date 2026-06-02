@@ -83,8 +83,14 @@ func RunSite(ft *fantrax.Client, sopts SiteOptions) error {
 		weekNums = append(weekNums, w.n)
 	}
 
-	// Pass 2: aggregate season awards cumulatively, one snapshot per week.
+	// Pass 2: aggregate season awards + standings history cumulatively.
 	cumulative := AggregateSeasonAwards(recaps)
+	standingsHistory := ComputeStandingsHistory(recaps)
+	for i := range cumulative {
+		if i < len(standingsHistory) {
+			cumulative[i].StandingsHistory = standingsHistory[:i+1]
+		}
+	}
 
 	// Pass 3: render each week with its through-week season snapshot.
 	var latestRecap *Recap

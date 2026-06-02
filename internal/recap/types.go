@@ -133,9 +133,10 @@ type SeasonAwardCategory struct {
 // (across all teams) — the per-week WorstSingleStart awards re-ranked by
 // FPts ascending.
 type SeasonAwards struct {
-	ThroughWeek int                   `json:"through_week"`
-	Categories  []SeasonAwardCategory `json:"categories"`
-	Shellings   []PitcherStartLine    `json:"shellings,omitempty"`
+	ThroughWeek      int                   `json:"through_week"`
+	Categories       []SeasonAwardCategory `json:"categories"`
+	Shellings        []PitcherStartLine    `json:"shellings,omitempty"`
+	StandingsHistory []WeekStandings       `json:"standings_history,omitempty"`
 }
 
 // MatchupWPCurve is the per-matchup win-probability trace produced by Monte

@@ -21,6 +21,8 @@ var funcMap = template.FuncMap{
 	"pct":               fmtPct,
 	"fmtDate":           fmtDate,
 	"add":               func(a, b int) int { return a + b },
+	"sub":               func(a, b int) int { return a - b },
+	"mul":               func(a, b int) int { return a * b },
 	"barWidth":          barWidth,
 	"matchupWinnerName": matchupWinnerName,
 	"matchupLoserName":  matchupLoserName,
@@ -35,6 +37,10 @@ var funcMap = template.FuncMap{
 	"teamLogo":          teamLogo,
 	"teamInitial":       teamInitial,
 	"teamColor":         teamColor,
+	"rankRange":         rankRange,
+	"bumpColor":         bumpColor,
+	"teamShort":         teamShort,
+	"standingsPoints":   standingsPoints,
 }
 
 // teamLogo returns the avatar URL for one team from the Recap.LogoURLs map.
