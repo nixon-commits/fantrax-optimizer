@@ -75,10 +75,10 @@ The matchups response is also memoized in-memory per `*fantrax.Client` (via `all
 
 **`internal/config`** — loads env vars via `godotenv`, validates that all four required vars are set, and returns a `Config` struct used by the CLI commands to wire everything together.
 
-**`internal/fantrax`** — wraps `github.com/pmurley/go-fantrax` (public read API) and `go-fantrax/auth_client` (authenticated API + lineup writes). The library is pinned via a `go.mod replace` directive to `./go-fantrax-fork`, a local fork of upstream v0.1.14. Key details:
+**`internal/fantrax`** — wraps `github.com/pmurley/go-fantrax` (public read API) and `go-fantrax/auth_client` (authenticated API + lineup writes). Key details:
 - `auth_client` uses chromedp (headless Chrome) to log in and obtain a session cookie. Cookie is cached in `.fantrax-cache/`. On first run or cache miss, a browser opens.
 - Credentials read from env: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`.
-- **Fantrax API version** — every `/fxpa/req` POST body must include `"v": "<current>"`. The fork centralizes this in `fantraxAPIVersion` in `go-fantrax-fork/auth_client/fantrax_client.go`. When Fantrax deploys a new version and calls start returning `STALE_CLIENT` (empty `responses` array), probe the API with `curl` to find the new version string and update the constant. PR [pmurley/go-fantrax#3](https://github.com/pmurley/go-fantrax/pull/3) tracks the upstream fix; once merged, the fork can be dropped. Our own `gs_check.go` and `daily_fpts.go` also build `/fxpa/req` payloads directly — keep their `"v"` strings in sync.
+- **Fantrax API version** — every `/fxpa/req` POST body must include `"v": "<current>"`. The library centralizes this in `fantraxAPIVersion` in `auth_client/fantrax_client.go`. When Fantrax deploys a new version and calls start returning `STALE_CLIENT` (empty `responses` array), probe the API with `curl` to find the new version string — update the constant in the library and also in `gs_check.go` and `daily_fpts.go`, which build `/fxpa/req` payloads directly.
 - **Position IDs are numeric strings** (`"001"` = C, `"002"` = 1B, `"003"` = 2B, `"004"` = 3B, `"005"` = SS, `"008"` = INF, `"012"` = OF, `"014"` = UT). These come from the roster API and must be used as-is for slot assignment and eligibility checks.
 - This league's active slot names: `C`, `1B`, `2B`, `3B`, `SS`, `INF`, `OF` (×4), `UT` (×3). Mapped in `posNameToID` in `client.go`.
 - Scoring group code is `BASEBALL_HITTING` (not `HITTING`).
