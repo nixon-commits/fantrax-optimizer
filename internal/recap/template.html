@@ -446,7 +446,7 @@
   {{- $hist := .Season.StandingsHistory}}
   {{- $numWeeks := len $hist}}
   {{- $numTeams := len (index $hist 0).Standings}}
-  {{- $padL := 22}}{{- $padR := 115}}{{- $padT := 28}}{{- $padB := 28}}
+  {{- $padL := 22}}{{- $padR := 35}}{{- $padT := 28}}{{- $padB := 28}}
   {{- $innerW := mul $numWeeks 56}}
   {{- $innerH := mul $numTeams 24}}
   {{- $svgW := add $innerW (add $padL $padR)}}
