@@ -90,6 +90,15 @@
   .season-cat .row { padding: 8px 12px; }
   .season-cat .row .name { font-size: 13px; }
   .season-cat .row .stat { color: var(--accent); }
+  details.season-cat > summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; padding: 2px 4px; border-radius: 6px; user-select: none; }
+  details.season-cat > summary::-webkit-details-marker { display: none; }
+  details.season-cat > summary::marker { display: none; }
+  details.season-cat > summary h3 { margin: 0; pointer-events: none; }
+  details.season-cat > summary .expand-hint { font-size: 10px; color: var(--text-dim); letter-spacing: 0.05em; display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  details.season-cat > summary .chevron { font-size: 12px; transition: transform 0.15s; display: inline-block; }
+  details.season-cat[open] > summary .chevron { transform: rotate(90deg); }
+  details.season-cat > summary:hover .expand-hint { color: var(--text); }
+  details.season-cat[open] > summary { margin-bottom: 6px; }
   .shelling-row { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 12px; }
   .shelling-row .rank { color: var(--text-dim); font-weight: 700; min-width: 22px; text-align: center; font-size: 13px; }
   .shelling-row .body { flex: 1; min-width: 0; }
@@ -434,8 +443,11 @@
 <section>
   <h2>Season Awards · Through Week {{.Season.ThroughWeek}}</h2>
   {{- range .Season.Categories}}
-  <div class="season-cat">
-    <h3><span class="icon">{{awardEmoji .AwardName}}</span>{{.AwardName}}</h3>
+  <details class="season-cat">
+    <summary>
+      <h3><span class="icon">{{awardEmoji .AwardName}}</span>{{.AwardName}}</h3>
+      <span class="expand-hint"><span class="chevron">▸</span> expand</span>
+    </summary>
     {{- range $i, $t := .Teams}}
     {{- $sLogo := teamLogo $.LogoURLs $t.TeamID}}
     <div class="row">
@@ -450,11 +462,14 @@
       <div class="stat">{{$t.Count}}</div>
     </div>
     {{- end}}
-  </div>
+  </details>
   {{- end}}
   {{- if .Season.Shellings}}
-  <div class="season-cat">
-    <h3><span class="icon">🐚</span>Top 5 Shellings (Season)</h3>
+  <details class="season-cat">
+    <summary>
+      <h3><span class="icon">🐚</span>Top 5 Shellings (Season)</h3>
+      <span class="expand-hint"><span class="chevron">▸</span> expand</span>
+    </summary>
     {{- range $i, $s := .Season.Shellings}}
     <div class="shelling-row">
       <div class="rank">{{add $i 1}}</div>
@@ -465,7 +480,7 @@
       <div class="pts">{{pts $s.FPts}}</div>
     </div>
     {{- end}}
-  </div>
+  </details>
   {{- end}}
   {{- if .Season.StandingsHistory}}
   {{- $hist := .Season.StandingsHistory}}
