@@ -63,6 +63,44 @@ func (c *FileCache[T]) Get(key string, fetch func() (T, error)) (T, error) {
 	return data, nil
 }
 
+// GetWithStaleFallback always attempts a fresh fetch regardless of TTL.
+// On failure it serves any previously-cached value (ignoring expiry) if one
+// exists, so a transient upstream outage never causes a hard error.
+// Only errors if the fetch fails AND there is no cached file at all.
+func (c *FileCache[T]) GetWithStaleFallback(key string, fetch func() (T, error)) (T, error) {
+	path := c.path(key)
+
+	data, err := fetch()
+	if err == nil {
+		if saveErr := c.save(path, data); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to save cache %s: %v\n", key, saveErr)
+		}
+		return data, nil
+	}
+
+	// Fresh fetch failed — serve any stale cached value.
+	if stale, ok := c.loadAny(path); ok {
+		fmt.Fprintf(os.Stderr, "warning: fetch failed (%v), serving stale cache for %s\n", err, key)
+		return stale, nil
+	}
+
+	return data, err
+}
+
+// loadAny reads a cached file ignoring TTL expiry.
+func (c *FileCache[T]) loadAny(path string) (T, bool) {
+	var zero T
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return zero, false
+	}
+	var env envelope[T]
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return zero, false
+	}
+	return env.Data, true
+}
+
 // Invalidate removes a single cached entry.
 func (c *FileCache[T]) Invalidate(key string) error {
 	err := os.Remove(c.path(key))

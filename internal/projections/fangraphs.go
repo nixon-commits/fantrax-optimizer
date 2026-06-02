@@ -181,7 +181,7 @@ func NewFanGraphsSource() (*FanGraphsSource, error) {
 func NewFanGraphsSourceCached(cacheDir string, ttl time.Duration) (*FanGraphsSource, error) {
 	c := cache.New[[]fgRow](cacheDir, ttl)
 	key := cache.Key("fangraphs", "bat", currentAPIType)
-	rows, err := c.Get(key, fetchBattingRows)
+	rows, err := c.GetWithStaleFallback(key, fetchBattingRows)
 	if err != nil {
 		return nil, err
 	}

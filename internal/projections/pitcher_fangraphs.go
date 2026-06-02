@@ -139,7 +139,7 @@ func NewFanGraphsPitcherSource() (*FanGraphsPitcherSource, error) {
 func NewFanGraphsPitcherSourceCached(cacheDir string, ttl time.Duration) (*FanGraphsPitcherSource, error) {
 	c := cache.New[[]fgPitchRow](cacheDir, ttl)
 	key := cache.Key("fangraphs", "pit", currentAPIType)
-	rows, err := c.Get(key, fetchPitchingRows)
+	rows, err := c.GetWithStaleFallback(key, fetchPitchingRows)
 	if err != nil {
 		return nil, err
 	}
