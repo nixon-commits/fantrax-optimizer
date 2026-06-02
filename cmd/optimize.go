@@ -1209,6 +1209,7 @@ func runOptimize(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		fmt.Println("Lineup applied successfully.")
+		ft.InvalidatePeriodRosterCache(dr.period)
 
 		// Send Pushover notification summarizing the changes.
 		nHitter := len(dr.hitterResult.ToActivate) + len(dr.hitterResult.ToBench)

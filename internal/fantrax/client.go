@@ -308,6 +308,24 @@ func (c *Client) allMatchups() (*auth_client.AllMatchupsResult, error) {
 	return result, nil
 }
 
+// InvalidatePeriodRosterCache drops the cached hitter and pitcher rosters for
+// a specific scoring period so the next call re-fetches from Fantrax. Called
+// after ApplyLineup so a second optimize run sees the updated lineup rather
+// than the stale pre-apply snapshot.
+func (c *Client) InvalidatePeriodRosterCache(period int) {
+	if c.cacheDir == "" {
+		return
+	}
+	fc := cache.New[[]Player](c.cacheDir, 0)
+	periodStr := strconv.Itoa(period)
+	// Period-specific keys (used by GetHitterRosterForPeriod for future dates).
+	fc.Invalidate(cache.Key("fantrax-hitter-roster", c.teamID, periodStr))
+	fc.Invalidate(cache.Key("fantrax-pitcher-roster", c.teamID, periodStr))
+	// Current-day keys (used by GetHitterRoster / GetPitcherRoster for today).
+	fc.Invalidate(cache.Key("fantrax-hitter-roster", c.teamID))
+	fc.Invalidate(cache.Key("fantrax-pitcher-roster", c.teamID))
+}
+
 // GetHitterRoster returns all hitters on the team (active + reserve; excludes IL/minors).
 // Cached under fantrax-hitter-roster-<teamID> with todayTTL when SetCache is on.
 func (c *Client) GetHitterRoster() ([]Player, error) {
