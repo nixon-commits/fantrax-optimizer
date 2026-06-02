@@ -453,7 +453,7 @@
   {{- $svgH := add $innerH (add $padT $padB)}}
   <div class="season-cat" style="overflow-x:auto">
     <h3><span class="icon">📈</span>Pole Position · Season Standings</h3>
-    <svg viewBox="0 0 {{$svgW}} {{$svgH}}" width="100%" style="max-width:{{$svgW}}px;display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">
+    <svg viewBox="0 0 {{$svgW}} {{$svgH}}" width="100%" style="display:block;overflow:visible" xmlns="http://www.w3.org/2000/svg">
       {{- range $ri := rankRange $numTeams}}
       {{- $y := add $padT (mul $ri 24)}}
       <line x1="{{$padL}}" y1="{{$y}}" x2="{{add $padL $innerW}}" y2="{{$y}}" stroke="#243049" stroke-width="1"/>
