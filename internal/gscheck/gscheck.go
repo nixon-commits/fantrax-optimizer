@@ -79,7 +79,7 @@ type teamGS struct {
 }
 
 // RunGSCheck checks all teams for GS violations in the most recent scoring period.
-func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
+func RunGSCheck(ft *fantrax.Client, cfg config.Config) error {
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	fmt.Printf("Running GS check for date: %s\n", today.Format("2006-01-02"))
 
@@ -92,22 +92,10 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 		return fmt.Errorf("no scoring periods found")
 	}
 
-	var period *fantrax.ScoringPeriod
-	if force {
-		period = fantrax.FindCurrentPeriod(periods, today)
-		if period == nil {
-			period = fantrax.FindMostRecentPastPeriod(periods, today)
-		}
-		if period == nil {
-			return fmt.Errorf("no current or past scoring period found for %s", today.Format("2006-01-02"))
-		}
-		fmt.Printf("--force: using period %d (%s)\n", period.Number, period.Caption)
-	} else {
-		period = fantrax.FindJustEndedPeriod(periods, today)
-		if period == nil {
-			fmt.Println("Yesterday was not the end of a scoring period. Nothing to check.")
-			return nil
-		}
+	period := fantrax.FindJustEndedPeriod(periods, today)
+	if period == nil {
+		fmt.Println("Yesterday was not the end of a scoring period. Nothing to check.")
+		return nil
 	}
 
 	periodLabel := fmt.Sprintf("%s (%s – %s)", period.Caption, period.StartDate.Format("2006-01-02"), period.EndDate.Format("2006-01-02"))

@@ -5,10 +5,6 @@ on:
     - cron: '0 12 * * *'   # 12pm UTC (8am ET) every day
   workflow_dispatch:
     inputs:
-      force:
-        description: 'Skip end-of-period check (use latest period)'
-        type: boolean
-        default: true
       dry_run:
         description: 'Dry run — print report but skip notifications'
         type: boolean
@@ -39,16 +35,12 @@ jobs:
       - name: Run GS check
         run: |
           FLAGS=""
-          FORCE="${{ github.event.inputs.force }}"
-          DRY_RUN="${{ github.event.inputs.dry_run }}"
-          if [ "${FORCE:-false}" = "true" ]; then
-            FLAGS="$FLAGS --force"
-          fi
           if [ "${DRY_RUN:-false}" = "true" ]; then
             FLAGS="$FLAGS --dry-run"
           fi
           go run . gs-check $FLAGS
         env:
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
           FANTRAX_USERNAME: ${{ secrets.FANTRAX_USERNAME }}
           FANTRAX_PASSWORD: ${{ secrets.FANTRAX_PASSWORD }}
           FANTRAX_LEAGUE_ID: ${{ secrets.FANTRAX_LEAGUE_ID }}

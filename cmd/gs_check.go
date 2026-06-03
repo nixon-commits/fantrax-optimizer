@@ -8,8 +8,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var forceCheck bool
-
 var gsCheckCmd = &cobra.Command{
 	Use:   "gs-check",
 	Short: "Check league-wide GS violations for the most recent scoring period",
@@ -17,8 +15,6 @@ var gsCheckCmd = &cobra.Command{
 }
 
 func init() {
-	gsCheckCmd.Flags().BoolVar(&forceCheck, "force", false,
-		"skip end-of-period check; uses current period mid-week, most recent completed period otherwise")
 	rootCmd.AddCommand(gsCheckCmd)
 }
 
@@ -36,5 +32,5 @@ func runGSCheck(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("PUSHOVER_GROUP_KEY and PUSHOVER_API_TOKEN env vars required for gs-check command")
 	}
 
-	return gscheck.RunGSCheck(ft, *cfg, forceCheck)
+	return gscheck.RunGSCheck(ft, *cfg)
 }
