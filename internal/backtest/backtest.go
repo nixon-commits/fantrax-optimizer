@@ -477,6 +477,24 @@ func RunProjectionAnalysis(days []fantrax.DayRoster, snapshotDir string) []Proje
 			})
 			continue
 		}
+		// Staleness guard: --matchup pre-writes a snapshot for every remaining
+		// day in the week, so a day's snapshot can be a forecast generated
+		// several days earlier. The final hourly run on the day itself rewrites
+		// it with the real pre-lock projection — unless every run that day
+		// failed (e.g. a GHA outage). When GeneratedAt lands on a different
+		// calendar day than the date it projects, the snapshot is a stale
+		// forecast; grading it would inflate apparent projection error, so we
+		// flag it and exclude it from the rollup (mirroring "missing").
+		// A zero GeneratedAt (pre-dating this field) can't be judged, so we
+		// grade it as before.
+		if !snap.GeneratedAt.IsZero() &&
+			!sameUTCDate(snap.GeneratedAt, day.Date) {
+			results = append(results, ProjectionDayResult{
+				Date:   day.Date,
+				Source: "stale",
+			})
+			continue
+		}
 		byID := make(map[string]SnapshotPlayer, len(snap.Hitters)+len(snap.Pitchers))
 		for _, s := range snap.Hitters {
 			byID[s.PlayerID] = s
@@ -604,6 +622,16 @@ func topSignedMisses(players []PlayerProjection, n int) []PlayerProjection {
 		return sorted[i].PlayerID < sorted[j].PlayerID
 	})
 	return sorted
+}
+
+// sameUTCDate reports whether a timestamp falls on the same calendar day as a
+// date, both compared in UTC. The optimizer runs in UTC (GHA) and snapshot
+// dates are midnight-UTC, so UTC is the right basis for "was this generated on
+// the day it projects?".
+func sameUTCDate(t, date time.Time) bool {
+	ty, tm, td := t.UTC().Date()
+	dy, dm, dd := date.UTC().Date()
+	return ty == dy && tm == dm && td == dd
 }
 
 // LoadSnapshot reads a snapshot JSON from snapshotDir for the given date.
@@ -791,6 +819,30 @@ func FormatReport(r Report) string {
 	} else if len(r.Projections) > 0 {
 		fmt.Fprintln(&b, "\nNo projection snapshots found for this window.")
 		fmt.Fprintln(&b, "Use --archive-projections on optimize to enable exact grading.")
+	}
+
+	// Excluded-day warning: stale (forecast never refreshed on the day) and
+	// missing days carry no graded player-days, so they silently shrink the
+	// sample. List them explicitly — a window dominated by stale/missing days
+	// means the accuracy numbers above are not trustworthy.
+	var stale, missing []string
+	for _, d := range r.Projections {
+		switch d.Source {
+		case "stale":
+			stale = append(stale, d.Date.Format("2006-01-02"))
+		case "missing":
+			missing = append(missing, d.Date.Format("2006-01-02"))
+		}
+	}
+	if len(stale) > 0 || len(missing) > 0 {
+		fmt.Fprintf(&b, "\nExcluded from grading: %d stale, %d missing (of %d days).\n",
+			len(stale), len(missing), len(r.Projections))
+		if len(stale) > 0 {
+			fmt.Fprintf(&b, "  stale (forecast not refreshed on the day): %s\n", strings.Join(stale, ", "))
+		}
+		if len(missing) > 0 {
+			fmt.Fprintf(&b, "  missing (no snapshot written):              %s\n", strings.Join(missing, ", "))
+		}
 	}
 
 	return b.String()

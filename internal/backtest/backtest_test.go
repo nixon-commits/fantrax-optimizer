@@ -262,6 +262,94 @@ func TestRunProjectionAnalysis_MatchesSnapshot(t *testing.T) {
 	}
 }
 
+func TestRunProjectionAnalysis_StaleSnapshotMarkedStale(t *testing.T) {
+	dir := t.TempDir()
+	date := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	// Snapshot generated two days BEFORE the date it projects — a --matchup
+	// pre-write that was never refreshed on the day itself (every hourly run
+	// that day crashed). Grading it would compare actual FPts against a stale
+	// multi-day-old forecast and inflate apparent projection error.
+	s := Snapshot{
+		Date:             "2026-04-15",
+		ProjectionSystem: "depthcharts",
+		GeneratedAt:      time.Date(2026, 4, 13, 16, 0, 0, 0, time.UTC),
+		Hitters: []SnapshotPlayer{
+			{PlayerID: "h1", Name: "H1", MLBTeam: "NYY", ProjPtsPerGame: 10.0, HasGame: true},
+		},
+	}
+	if err := WriteSnapshot(dir, s); err != nil {
+		t.Fatal(err)
+	}
+	days := []fantrax.DayRoster{
+		{
+			Date:    date,
+			Players: []fantrax.DayPlayerFP{{PlayerID: "h1", Name: "H1", MLBTeam: "NYY", FPts: 14.0, HadGame: true}},
+		},
+	}
+	results := RunProjectionAnalysis(days, dir)
+	if len(results) != 1 {
+		t.Fatalf("want 1 result, got %d", len(results))
+	}
+	if results[0].Source != "stale" {
+		t.Errorf("source = %q, want stale", results[0].Source)
+	}
+	if len(results[0].Players) != 0 {
+		t.Errorf("want no graded players for a stale snapshot, got %d", len(results[0].Players))
+	}
+}
+
+func TestRunProjectionAnalysis_SameDaySnapshotGraded(t *testing.T) {
+	dir := t.TempDir()
+	date := time.Date(2026, 4, 15, 0, 0, 0, 0, time.UTC)
+	// Generated on the same calendar day it projects (the normal hourly case)
+	// — must still be graded, not flagged stale.
+	s := Snapshot{
+		Date:             "2026-04-15",
+		ProjectionSystem: "depthcharts",
+		GeneratedAt:      time.Date(2026, 4, 15, 13, 0, 0, 0, time.UTC),
+		Hitters: []SnapshotPlayer{
+			{PlayerID: "h1", Name: "H1", MLBTeam: "NYY", ProjPtsPerGame: 10.0, HasGame: true},
+		},
+	}
+	if err := WriteSnapshot(dir, s); err != nil {
+		t.Fatal(err)
+	}
+	days := []fantrax.DayRoster{
+		{
+			Date:    date,
+			Players: []fantrax.DayPlayerFP{{PlayerID: "h1", Name: "H1", MLBTeam: "NYY", FPts: 14.0, HadGame: true}},
+		},
+	}
+	results := RunProjectionAnalysis(days, dir)
+	if results[0].Source != "snapshot" {
+		t.Errorf("source = %q, want snapshot", results[0].Source)
+	}
+	if len(results[0].Players) != 1 {
+		t.Errorf("want 1 graded player, got %d", len(results[0].Players))
+	}
+}
+
+func TestFormatReport_WarnsOnExcludedDays(t *testing.T) {
+	r := Report{
+		Start: time.Date(2026, 5, 25, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC),
+		Projections: []ProjectionDayResult{
+			{Date: time.Date(2026, 5, 25, 0, 0, 0, 0, time.UTC), Source: "stale"},
+			{Date: time.Date(2026, 5, 26, 0, 0, 0, 0, time.UTC), Source: "missing"},
+			{Date: time.Date(2026, 5, 27, 0, 0, 0, 0, time.UTC), Source: "snapshot",
+				Players: []PlayerProjection{{Diff: 1, Source: "snapshot", Bucket: "OF"}}},
+		},
+	}
+	r.ProjectionSummary = summarizeProjections(r.Projections)
+	out := FormatReport(r)
+	if !strings.Contains(out, "stale") {
+		t.Errorf("expected stale-day warning in report, got:\n%s", out)
+	}
+	if !strings.Contains(out, "2026-05-25") {
+		t.Errorf("expected the stale date listed in report, got:\n%s", out)
+	}
+}
+
 func TestRunProjectionAnalysis_MissingSnapshotMarkedMissing(t *testing.T) {
 	days := []fantrax.DayRoster{
 		{
