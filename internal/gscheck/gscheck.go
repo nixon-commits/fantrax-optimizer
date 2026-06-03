@@ -146,6 +146,10 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 		time.Sleep(500 * time.Millisecond)
 	}
 
+	// Min violations are only meaningful once the period is complete; suppress
+	// them mid-week so an in-progress period doesn't generate false alerts.
+	periodComplete := period.EndDate.Before(today)
+
 	// Find violations.
 	var violations []Violation
 	for _, r := range results {
@@ -164,7 +168,7 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 			}
 			violations = append(violations, v)
 		}
-		if cfg.GSMin > 0 && r.gs < cfg.GSMin {
+		if periodComplete && cfg.GSMin > 0 && r.gs < cfg.GSMin {
 			violations = append(violations, Violation{TeamName: r.name, GSUsed: r.gs, Kind: ViolationMin})
 		}
 	}
@@ -180,7 +184,7 @@ func RunGSCheck(ft *fantrax.Client, cfg config.Config, force bool) error {
 		flag := ""
 		if r.gs > cfg.GSMax {
 			flag = " *** OVER MAX ***"
-		} else if cfg.GSMin > 0 && r.gs < cfg.GSMin {
+		} else if periodComplete && cfg.GSMin > 0 && r.gs < cfg.GSMin {
 			flag = " *** UNDER MIN ***"
 		}
 		fmt.Printf("  %s: %d GS%s\n", r.name, r.gs, flag)

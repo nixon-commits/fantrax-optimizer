@@ -18,7 +18,7 @@ var gsCheckCmd = &cobra.Command{
 
 func init() {
 	gsCheckCmd.Flags().BoolVar(&forceCheck, "force", false,
-		"skip end-of-period check, use most recent completed period")
+		"skip end-of-period check; uses current period mid-week, most recent completed period otherwise")
 	rootCmd.AddCommand(gsCheckCmd)
 }
 
