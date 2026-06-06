@@ -138,7 +138,7 @@ func NewFanGraphsPitcherSource() (*FanGraphsPitcherSource, error) {
 // NewFanGraphsPitcherSourceCached is like NewFanGraphsPitcherSource but uses a file cache.
 func NewFanGraphsPitcherSourceCached(cacheDir string, ttl time.Duration) (*FanGraphsPitcherSource, error) {
 	c := cache.New[[]fgPitchRow](cacheDir, ttl)
-	key := cache.Key("fangraphs", "pit", currentAPIType)
+	key := cache.Key(keyFanGraphs, "pit", currentAPIType)
 	rows, err := c.GetWithStaleFallback(key, fetchPitchingRows)
 	if err != nil {
 		return nil, err

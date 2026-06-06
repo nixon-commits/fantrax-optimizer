@@ -67,7 +67,7 @@ fangraphs proj  ──┘
 
 A handful of provider-specific TTLs sit outside this scheme: `fangraphs-{bat,pit}-*` (12 h), `mlb-handedness` (7 d), `savant-*` (12 h), `hkb-*` (8 h), `prospect-rankings-*` (168 h via `PROSPECT_RANK_CACHE_HOURS`), `mlb-game-logs-<playerID>-<group>-<season>` (1 h, prospects MiLB game log), `mlb-game-log-<playerID>-<group>-<season>` (1 h, MLB-only game log used by `BackfillDailyFPts`). These predate or sit between the three-tier scheme and use whatever TTL fits the upstream's update cadence.
 
-**Cache key naming**: `<source>-<entity>[-scope...]` where `source` ∈ {`fantrax`, `mlb`, `fangraphs`, `savant`, `hkb`, `prospect`, `mlb-handedness`}, `entity` is the data shape (e.g. `roster-stats`, `pitcher-gs`, `matchups`, `schedule`, `bat`, `pit`), and `scope` is whatever disambiguators apply (teamID, period, leagueID, date). Old `backtest-snapshot-mlb-*` files (pre–roster-stats rename), `backtest-snapshot-*` files (StatsType=2 era), and `player-ids.json` (pre-FileCache prospects bulk file) are orphaned and safe to delete.
+**Cache key naming**: `<source>-<entity>[-scope...]` where `source` ∈ {`fantrax`, `mlb`, `fangraphs`, `savant`, `hkb`, `prospect`, `mlb-handedness`}, `entity` is the data shape (e.g. `roster-stats`, `pitcher-gs`, `matchups`, `schedule`, `bat`, `pit`), and `scope` is whatever disambiguators apply (teamID, period, leagueID, date). The repeated prefixes are named constants owned by the package that builds them — the whole `fantrax-*` / `mlb-game-log` family in `internal/fantrax/cachekeys.go`, plus `keySavant` (`waivers/savant.go`) and `keyFanGraphs` (`projections/fangraphs.go`) — so a prefix rename lands in one place; genuine single-use keys (`mlb-schedule`, `mlb-handedness`, `mlb-player-id(s)`, `mlb-game-logs`) stay inline literals. Old `backtest-snapshot-mlb-*` files (pre–roster-stats rename), `backtest-snapshot-*` files (StatsType=2 era), and `player-ids.json` (pre-FileCache prospects bulk file) are orphaned and safe to delete.
 
 **`Client.SetCache(cacheDir)`** in `internal/fantrax/client.go` enables the file cache for every cached method on `*fantrax.Client`. `cmd/root.go`'s `initApp` calls it on every command's client unless `--no-cache` is set, so commands inherit caching automatically — no per-command opt-in. When `cacheDir` is empty, every cached helper short-circuits to its uncached `fetchXxx` sibling, which is also how tests stay hermetic. Per-period methods (`GetHitterRosterForPeriod`, `GetRecentStats`, `GetRecentPitcherStats`, etc.) call `c.ttlForPeriod(period)` — past periods get `pastPeriodTTL`, current/future fall back to `todayTTL`. The "current" bound comes from `PeriodForDate(seasonStart, time.Now().UTC())` against the cached `fantrax-season-range`, so there's no extra upstream call to determine the cutoff.
 
@@ -75,12 +75,16 @@ The matchups response is also memoized in-memory per `*fantrax.Client` (via `all
 
 **`internal/config`** — loads env vars via `godotenv`, validates that all four required vars are set, and returns a `Config` struct used by the CLI commands to wire everything together.
 
+**`internal/scoring`** — the single home for the stat→fantasy-points algebra. `ApplyHitter`/`ApplyPitcher` take a neutral `HitterLine`/`PitcherLine` of raw counts and apply `Weights` (the `fantrax.ScoringWeights` alias). Pure, imports nothing else in the tree, so `fantrax` (game-log backfill) and `projections` both depend on it without a cycle. See the **Scoring model** section below for the adapter pattern.
+
+**`internal/positions`** — the single source of truth for Fantrax position-ID semantics: ID constants (filling `"003"`/`"008"`, which `auth_client` omits), `SlotName`, `AcceptsINF`, `IsPitcherSlot`, and `HitterBucket` (C>INF>OF>UT reporting precedence). A leaf package (depends only on `auth_client`); `fantrax` and `backtest` import it instead of hardcoding position-ID switches.
+
 **`internal/fantrax`** — wraps `github.com/pmurley/go-fantrax` (public read API) and `go-fantrax/auth_client` (authenticated API + lineup writes). Key details:
 - `auth_client` uses chromedp (headless Chrome) to log in and obtain a session cookie. Cookie is cached in `.fantrax-cache/`. On first run or cache miss, a browser opens.
 - Credentials read from env: `FANTRAX_USERNAME`, `FANTRAX_PASSWORD`, `FANTRAX_LEAGUE_ID`, `FANTRAX_TEAM_ID`.
-- **Fantrax API version** — every `/fxpa/req` POST body must include `"v": "<current>"`. The library centralizes this in `fantraxAPIVersion` in `auth_client/fantrax_client.go`. When Fantrax deploys a new version and calls start returning `STALE_CLIENT` (empty `responses` array), probe the API with `curl` to find the new version string — update the constant in the library and also in `gs_check.go` and `daily_fpts.go`, which build `/fxpa/req` payloads directly.
-- **Position IDs are numeric strings** (`"001"` = C, `"002"` = 1B, `"003"` = 2B, `"004"` = 3B, `"005"` = SS, `"008"` = INF, `"012"` = OF, `"014"` = UT). These come from the roster API and must be used as-is for slot assignment and eligibility checks.
-- This league's active slot names: `C`, `1B`, `2B`, `3B`, `SS`, `INF`, `OF` (×4), `UT` (×3). Mapped in `posNameToID` in `client.go`.
+- **Fantrax API version** — every `/fxpa/req` POST body must include `"v": "<current>"`. The library centralizes this in `fantraxAPIVersion` in `auth_client/fantrax_client.go`. When Fantrax deploys a new version and calls start returning `STALE_CLIENT` (empty `responses` array), probe the API with `curl` to find the new version string — update the constant in the library and also in `gs_check.go`, which builds a `/fxpa/req` payload directly. (`daily_fpts.go` now goes through `auth_client`'s request builder and carries no version of its own.)
+- **Position IDs are numeric strings** (`"001"` = C, `"002"` = 1B, `"003"` = 2B, `"004"` = 3B, `"005"` = SS, `"008"` = INF, `"012"` = OF, `"014"` = UT). These come from the roster API and must be used as-is for slot assignment and eligibility checks. Their semantics live in **`internal/positions`** (the single source of truth): ID constants — filling `"003"`/`"008"`, which upstream `auth_client` omits — plus `SlotName`, `AcceptsINF`, `IsPitcherSlot`, and `HitterBucket` (the C>INF>OF>UT reporting precedence). `fantrax` and `backtest` both import it instead of hardcoding switches.
+- This league's active slot names: `C`, `1B`, `2B`, `3B`, `SS`, `INF`, `OF` (×4), `UT` (×3). Mapped in `posNameToID` in `client.go` (which references `positions` constants).
 - Scoring group code is `BASEBALL_HITTING` (not `HITTING`).
 - **Scoring periods are daily** (period 1 = season opener). Period number = `1 + days since season start`. Matchup data from `GetAllMatchups()` has weekly matchup entries, not daily — don't use it for period lookup.
 - **Future lineup apply** requires a two-step confirmation flow: first API call returns a confirmation prompt (`ShowConfirmWindow=true`), second call with the same payload applies the changes. Handled in `ApplyLineup`.
@@ -129,7 +133,7 @@ Snapshot writing is default-on for real (non-dry-run) `optimize` runs so the cro
 - **Hitters** (`OptimizeLineup`): backtracking with pruning to find globally optimal slot assignment maximizing total expected points. Checks `PtsPerGameSource` (type assertion) before falling back to `expectedPts`. `EligibleForSlot` in `fantrax/client.go` handles UT (accepts any hitter) and INF (accepts 1B, 2B, 3B, SS — not C).
 - **Pitchers** (`OptimizePitcherLineup`): sorts by hasGame → expectedPts → ID, then assigns to slots. Uses probable starter data to determine if SPs start; when no probable data is available (future dates), SPs default to "has game" if their team plays. Accepts an optional `*GSBudget` for weekly game-start limit awareness.
 
-**Scoring model** — this league scores: `1B`, `2B`, `3B`, `HR`, `RBI`, `R`, `BB`, `SB`, `CS`, `HBP`, `SO`, `GIDP`, `XBH`, `TB`, `CYC`. The `expectedPts` function derives `1B = H - 2B - 3B - HR`, `XBH = 2B + 3B + HR`, `TB = 1B + 2×2B + 3×3B + 4×HR` before applying weights.
+**Scoring model** — this league scores: `1B`, `2B`, `3B`, `HR`, `RBI`, `R`, `BB`, `SB`, `CS`, `HBP`, `SO`, `GIDP`, `XBH`, `TB`, `CYC`. The stat→points algebra lives in **`internal/scoring`** (the single source): `ApplyHitter`/`ApplyPitcher` take a neutral `HitterLine`/`PitcherLine` of raw counts, derive `1B = H - 2B - 3B - HR` (floored at 0), `XBH = 2B + 3B + HR`, `TB = 1B + 2×2B + 3×3B + 4×HR`, and apply the league weights. The package imports nothing else (so both `fantrax` and `projections` can depend on it without a cycle); `fantrax.ScoringWeights` is a type alias for `scoring.Weights`. Callers adapt their source to a stat line: `projections.ExpectedPtsFromProj`/`PitcherExpectedPtsFromProj` build a line from a projection and divide by games (scoring is linear, so per-game = total/G); the `mlb_backfill` game-log scorers build a line and don't divide (single game). `optimizer` and `waivers` consume these rather than re-implementing the math.
 
 **GS budget** — weekly game-start limit awareness (`GS_MAX` env var, 0 = disabled). When enabled, the pitcher optimizer gates SP starts to avoid exhausting the weekly GS allocation on low-value starters while better aces pitch later in the matchup week.
 - **Matchup week boundaries** derived from `GetAllMatchups()`: consecutive daily scoring periods where the team faces the same opponent form a matchup week. Computed in `fantrax/matchup_weeks.go` via `MatchupWeekBounds`.
@@ -177,3 +181,17 @@ When adding new commands, flags, env vars, or changing architecture, update `REA
 `.github/workflows/waivers.yml` runs daily at 1pm UTC (9am ET) and on `workflow_dispatch` (with `dry_run` and `top` inputs). Calls `waivers` to surface Statcast-driven free-agent pickups; sends Pushover when not in dry-run. Same secrets as `transactions.yml`. Uses `actions/cache@v4` with key prefix `waivers-` (falls back to `projections-`) so the FanGraphs JSON and Savant CSVs survive across runs.
 
 `.github/workflows/recap.yml` runs Mondays at 11am UTC (7am ET) and on `workflow_dispatch`. Calls `recap-site --out dist` to build the full site (every completed week + index.html), uploads `dist/` via `actions/upload-pages-artifact@v3`, and deploys with `actions/deploy-pages@v4`. No HTML is committed back to the repo. Needs `permissions: pages: write, id-token: write` and the repo's Pages source set to "GitHub Actions" (Settings → Pages → Source). The Pushover notification uses `steps.deployment.outputs.page_url` so the link always points at the live site root.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked as local markdown files under `.scratch/<feature-slug>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default canonical vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), recorded as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.

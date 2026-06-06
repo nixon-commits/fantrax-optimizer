@@ -99,7 +99,7 @@ func (c *Client) GetRecentPitcherStats(currentPeriod, _ int) (map[string]RecentS
 		return c.fetchRecentPitcherStats(period)
 	}
 	fc := cache.New[map[string]RecentStat](c.cacheDir, c.ttlForPeriod(period))
-	key := cache.Key("fantrax-recent-stats-pitcher", c.teamID, strconv.Itoa(period))
+	key := cache.Key(keyRecentStatsPitcher, c.teamID, strconv.Itoa(period))
 	return fc.Get(key, func() (map[string]RecentStat, error) {
 		return c.fetchRecentPitcherStats(period)
 	})

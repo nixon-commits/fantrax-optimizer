@@ -175,7 +175,7 @@ func collectBackfillTargets(days []DayRoster) []backfillTarget {
 // (hitting or pitching). The MLB statsapi returns the entire season in
 // one request; we cache it at 1h TTL and the caller picks the target date.
 func (c *Client) fetchMLBGameLog(mlbamID int, group string, season int) ([]mlbGameLogDay, error) {
-	key := cache.Key("mlb-game-log", strconv.Itoa(mlbamID), group, strconv.Itoa(season))
+	key := cache.Key(keyMLBGameLog, strconv.Itoa(mlbamID), group, strconv.Itoa(season))
 	fc := cache.New[[]mlbGameLogDay](c.cacheDir, mlbBackfillGameLogTTL)
 	return fc.Get(key, func() ([]mlbGameLogDay, error) {
 		return fetchMLBGameLogUncached(mlbamID, group, season)

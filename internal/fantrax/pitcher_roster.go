@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/nixon-commits/rosterbot/internal/cache"
+	"github.com/nixon-commits/rosterbot/internal/positions"
 	"github.com/pmurley/go-fantrax/models"
 )
 
@@ -13,7 +14,7 @@ import (
 func isPitcher(rp models.RosterPlayer) bool {
 	hasPitcherPos := false
 	for _, pos := range rp.Positions {
-		if pitcherPosIDs[pos] {
+		if positions.IsPitcherSlot(pos) {
 			hasPitcherPos = true
 		}
 	}
@@ -28,7 +29,7 @@ func (c *Client) GetPitcherRoster() ([]Player, error) {
 		return c.fetchPitcherRosterForPeriod(0)
 	}
 	fc := cache.New[[]Player](c.cacheDir, c.todayTTL)
-	key := cache.Key("fantrax-pitcher-roster", c.teamID)
+	key := cache.Key(keyPitcherRoster, c.teamID)
 	return fc.Get(key, func() ([]Player, error) {
 		return c.fetchPitcherRosterForPeriod(0)
 	})
@@ -45,7 +46,7 @@ func (c *Client) GetPitcherRosterForPeriod(period int) ([]Player, error) {
 		return c.fetchPitcherRosterForPeriod(period)
 	}
 	fc := cache.New[[]Player](c.cacheDir, c.ttlForPeriod(period))
-	key := cache.Key("fantrax-pitcher-roster", c.teamID, strconv.Itoa(period))
+	key := cache.Key(keyPitcherRoster, c.teamID, strconv.Itoa(period))
 	return fc.Get(key, func() ([]Player, error) {
 		return c.fetchPitcherRosterForPeriod(period)
 	})
@@ -80,7 +81,7 @@ func (c *Client) GetPitcherSlots() ([]Slot, error) {
 		return c.fetchPitcherSlots()
 	}
 	fc := cache.New[[]Slot](c.cacheDir, c.stableTTL)
-	key := cache.Key("fantrax-pitcher-slots", c.leagueID)
+	key := cache.Key(keyPitcherSlots, c.leagueID)
 	return fc.Get(key, func() ([]Slot, error) {
 		return c.fetchPitcherSlots()
 	})
@@ -119,7 +120,7 @@ func (c *Client) GetPitcherScoringWeights() (ScoringWeights, error) {
 		return c.fetchPitcherScoringWeights()
 	}
 	fc := cache.New[ScoringWeights](c.cacheDir, c.stableTTL)
-	key := cache.Key("fantrax-pitcher-scoring", c.leagueID)
+	key := cache.Key(keyPitcherScoring, c.leagueID)
 	return fc.Get(key, func() (ScoringWeights, error) {
 		return c.fetchPitcherScoringWeights()
 	})

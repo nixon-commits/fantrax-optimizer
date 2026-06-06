@@ -53,7 +53,7 @@ func (c *Client) GetCurrentPeriod() (int, error) {
 		return c.auth.GetCurrentPeriod()
 	}
 	fc := cache.New[int](c.cacheDir, c.todayTTL)
-	key := cache.Key("fantrax-current-period", c.leagueID, time.Now().UTC().Format("2006-01-02"))
+	key := cache.Key(keyCurrentPeriod, c.leagueID, time.Now().UTC().Format("2006-01-02"))
 	return fc.Get(key, func() (int, error) {
 		return c.auth.GetCurrentPeriod()
 	})
@@ -75,7 +75,7 @@ func (c *Client) GetSeasonDateRange() (time.Time, time.Time, error) {
 		return c.fetchSeasonDateRange()
 	}
 	fc := cache.New[seasonDateRange](c.cacheDir, c.stableTTL)
-	key := cache.Key("fantrax-season-range", c.leagueID)
+	key := cache.Key(keySeasonRange, c.leagueID)
 	r, err := fc.Get(key, func() (seasonDateRange, error) {
 		first, last, err := c.fetchSeasonDateRange()
 		return seasonDateRange{First: first, Last: last}, err
@@ -137,7 +137,7 @@ func (c *Client) GetRecentStats(currentPeriod, _ int) (map[string]RecentStat, er
 		return c.fetchRecentStats(period)
 	}
 	fc := cache.New[map[string]RecentStat](c.cacheDir, c.ttlForPeriod(period))
-	key := cache.Key("fantrax-recent-stats-hitter", c.teamID, strconv.Itoa(period))
+	key := cache.Key(keyRecentStatsHitter, c.teamID, strconv.Itoa(period))
 	return fc.Get(key, func() (map[string]RecentStat, error) {
 		return c.fetchRecentStats(period)
 	})

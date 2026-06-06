@@ -19,6 +19,7 @@ import (
 
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
 	"github.com/nixon-commits/rosterbot/internal/optimizer"
+	"github.com/nixon-commits/rosterbot/internal/positions"
 	"github.com/nixon-commits/rosterbot/internal/projections"
 )
 
@@ -142,7 +143,7 @@ func RunLineupAnalysis(
 		for _, p := range day.Players {
 			if p.Active && p.HadGame {
 				actualPts += p.FPts
-				slot := slotShortName(p.SlotPosID, p.IsPitcher)
+				slot := positions.SlotName(p.SlotPosID)
 				started = append(started, PlayerPts{
 					PlayerID: p.PlayerID, Name: p.Name, MLBTeam: p.MLBTeam,
 					Pts: p.FPts, Slot: slot,
@@ -350,38 +351,6 @@ func probableStartersFromActuals(pitchers []fantrax.DayPlayerFP) map[string]stri
 	return m
 }
 
-// slotShortName returns the display-friendly slot name ("OF", "SP", etc.) for
-// a given posId. Returns "" when unknown.
-func slotShortName(posID string, isPitcher bool) string {
-	// We don't have the full slot definitions passed in; look up common ones.
-	// (Unused for analysis, only for optional display.)
-	switch posID {
-	case "001":
-		return "C"
-	case "002":
-		return "1B"
-	case "003":
-		return "2B"
-	case "004":
-		return "3B"
-	case "005":
-		return "SS"
-	case "008":
-		return "INF"
-	case "012":
-		return "OF"
-	case "014":
-		return "UT"
-	case "015":
-		return "SP"
-	case "016", "043", "044":
-		return "RP"
-	case "017":
-		return "P"
-	}
-	return ""
-}
-
 // --- Hindsight sources ---
 
 // hindsightHitterSource returns actual FPts as projected pts/game.
@@ -563,36 +532,16 @@ func accuracyStats(players []PlayerProjection) (mae, bias, rmse float64) {
 var bucketOrder = []string{"C", "INF", "OF", "UT", "SP", "RP"}
 
 // positionBucket assigns a player to one of six accuracy buckets. Pitchers are
-// bucketed by role (SP/RP). Hitters are bucketed by eligibility with the
-// precedence C > INF > OF > UT, so the scarcest defensive role a player
-// qualifies for wins (a C/OF lands in C; a 3B/OF lands in INF). `positions`
-// holds Fantrax position-ID strings (001=C, 002/003/004/005/008=infield,
-// 012=OF, 014=UT). A hitter with no eligibility falls back to UT.
-func positionBucket(isPitcher bool, role string, positions []string) string {
+// bucketed by role (SP/RP); hitters are bucketed by eligibility via
+// positions.HitterBucket (precedence C > INF > OF > UT, UT as fallback).
+func positionBucket(isPitcher bool, role string, eligibility []string) string {
 	if isPitcher {
 		if role == "SP" {
 			return "SP"
 		}
 		return "RP"
 	}
-	has := func(id string) bool {
-		for _, p := range positions {
-			if p == id {
-				return true
-			}
-		}
-		return false
-	}
-	switch {
-	case has("001"):
-		return "C"
-	case has("002"), has("003"), has("004"), has("005"), has("008"):
-		return "INF"
-	case has("012"):
-		return "OF"
-	default:
-		return "UT"
-	}
+	return positions.HitterBucket(eligibility)
 }
 
 // topSignedMisses returns the n player-days with the largest absolute

@@ -14,6 +14,10 @@ import (
 	"github.com/nixon-commits/rosterbot/internal/cache"
 )
 
+// keySavant is the cache-key source prefix for every Baseball Savant CSV. The
+// entity/window parts ("hit"/"pit", "exp"/"sc"/"exp14"/…) are appended per call.
+const keySavant = "savant"
+
 // Baseball Savant CSV endpoints. Defined as `var` so tests can replace them
 // with httptest server URLs (matches the convention in internal/schedule and
 // internal/projections/fangraphs.go).
@@ -51,7 +55,7 @@ func LoadSavant(cacheDir string, year int, today time.Time, ttl time.Duration) (
 	pitExpC := cache.New[[]SavantPitcherRow](cacheDir, ttl)
 	pitExp30C := cache.New[[]SavantPitcherRow](cacheDir, ttl)
 
-	if rows, err := hitExpC.Get(cache.Key("savant", "hit", "exp", strconv.Itoa(year)), func() ([]SavantHitterRow, error) {
+	if rows, err := hitExpC.Get(cache.Key(keySavant, "hit", "exp", strconv.Itoa(year)), func() ([]SavantHitterRow, error) {
 		return fetchHitterExp(fmt.Sprintf(savantHitterExpURL, year))
 	}); err == nil {
 		for _, r := range rows {
@@ -61,7 +65,7 @@ func LoadSavant(cacheDir string, year int, today time.Time, ttl time.Duration) (
 		log.Printf("WARNING: savant hit-exp fetch failed: %v", err)
 	}
 
-	if rows, err := hitSCC.Get(cache.Key("savant", "hit", "sc", strconv.Itoa(year)), func() ([]SavantHitterStatcastRow, error) {
+	if rows, err := hitSCC.Get(cache.Key(keySavant, "hit", "sc", strconv.Itoa(year)), func() ([]SavantHitterStatcastRow, error) {
 		return fetchHitterSC(fmt.Sprintf(savantHitterSCURL, year))
 	}); err == nil {
 		for _, r := range rows {
@@ -71,7 +75,7 @@ func LoadSavant(cacheDir string, year int, today time.Time, ttl time.Duration) (
 		log.Printf("WARNING: savant hit-sc fetch failed: %v", err)
 	}
 
-	if rows, err := hitExp14C.Get(cache.Key("savant", "hit", "exp14", strconv.Itoa(year), dateKey), func() ([]SavantHitterRow, error) {
+	if rows, err := hitExp14C.Get(cache.Key(keySavant, "hit", "exp14", strconv.Itoa(year), dateKey), func() ([]SavantHitterRow, error) {
 		return fetchHitterExp(fmt.Sprintf(savantHitterExp14dURL, year, start14.Format("2006-01-02"), end.Format("2006-01-02")))
 	}); err == nil {
 		for _, r := range rows {
@@ -81,7 +85,7 @@ func LoadSavant(cacheDir string, year int, today time.Time, ttl time.Duration) (
 		log.Printf("WARNING: savant hit-exp14 fetch failed: %v", err)
 	}
 
-	if rows, err := pitExpC.Get(cache.Key("savant", "pit", "exp", strconv.Itoa(year)), func() ([]SavantPitcherRow, error) {
+	if rows, err := pitExpC.Get(cache.Key(keySavant, "pit", "exp", strconv.Itoa(year)), func() ([]SavantPitcherRow, error) {
 		return fetchPitcherExp(fmt.Sprintf(savantPitcherExpURL, year))
 	}); err == nil {
 		for _, r := range rows {
@@ -91,7 +95,7 @@ func LoadSavant(cacheDir string, year int, today time.Time, ttl time.Duration) (
 		log.Printf("WARNING: savant pit-exp fetch failed: %v", err)
 	}
 
-	if rows, err := pitExp30C.Get(cache.Key("savant", "pit", "exp30", strconv.Itoa(year), dateKey), func() ([]SavantPitcherRow, error) {
+	if rows, err := pitExp30C.Get(cache.Key(keySavant, "pit", "exp30", strconv.Itoa(year), dateKey), func() ([]SavantPitcherRow, error) {
 		return fetchPitcherExp(fmt.Sprintf(savantPitcherExp30URL, year, start30.Format("2006-01-02"), end.Format("2006-01-02")))
 	}); err == nil {
 		for _, r := range rows {

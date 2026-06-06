@@ -297,7 +297,7 @@ func (c *Client) getPlayerGSSnapshotForPeriodCached(
 		snap, err = c.getPlayerGSSnapshotForPeriod(teamID, period)
 		return snap, true, err
 	}
-	key := cache.Key("fantrax-pitcher-gs", teamID, strconv.Itoa(period))
+	key := cache.Key(keyPitcherGS, teamID, strconv.Itoa(period))
 	snap, err = snapCache.Get(key, func() (map[string]playerGSSnapshot, error) {
 		hitNetwork = true
 		return c.getPlayerGSSnapshotForPeriod(teamID, period)

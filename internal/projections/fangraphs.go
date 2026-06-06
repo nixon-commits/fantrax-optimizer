@@ -14,6 +14,10 @@ import (
 
 var fangraphsBattingURL = "https://www.fangraphs.com/api/projections?type=fangraphsdc&stats=bat&pos=all&team=0&players=0&lg=all"
 
+// keyFanGraphs is the cache-key source prefix for FanGraphs projection slices;
+// the "bat"/"pit" entity and the projection-system type are appended per call.
+const keyFanGraphs = "fangraphs"
+
 // currentAPIType tracks the FanGraphs API type parameter (e.g. "fangraphsdc", "steamerr")
 // set by SetProjectionSystem. Used as part of the cache key.
 var currentAPIType = "fangraphsdc"
@@ -180,7 +184,7 @@ func NewFanGraphsSource() (*FanGraphsSource, error) {
 // NewFanGraphsSourceCached is like NewFanGraphsSource but uses a file cache.
 func NewFanGraphsSourceCached(cacheDir string, ttl time.Duration) (*FanGraphsSource, error) {
 	c := cache.New[[]fgRow](cacheDir, ttl)
-	key := cache.Key("fangraphs", "bat", currentAPIType)
+	key := cache.Key(keyFanGraphs, "bat", currentAPIType)
 	rows, err := c.GetWithStaleFallback(key, fetchBattingRows)
 	if err != nil {
 		return nil, err

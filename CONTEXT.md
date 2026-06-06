@@ -21,3 +21,17 @@ _Avoid_: projected points, FPG (use only in field names), value.
 **Single-Game FPts**:
 The fantasy points a player actually scored in one game — a Stat Line scored without per-game division. Used by the backtest/recap backfill, not the optimizer.
 _Avoid_: daily points, game score.
+
+### Positions
+
+**Position ID**:
+A Fantrax numeric string identifying a position or slot (e.g. `"001"` = C, `"008"` = INF, `"015"` = SP). The single source of their semantics is `internal/positions`, which fills the two IDs the upstream `auth_client` omits (`"003"` = 2B, `"008"` = INF).
+_Avoid_: position code, slot code, pos number.
+
+**Slot**:
+One fillable spot in the active lineup, named by its league key (C, 1B, INF, OF, UT, SP, RP, P). A Slot has a Position ID; a player is eligible when their Position IDs satisfy the slot's acceptance rule (UT accepts any hitter; INF accepts 1B/2B/3B/SS).
+_Avoid_: roster spot, lineup position.
+
+**Eligibility Bucket**:
+A reporting grouping a hitter falls into by eligibility precedence C > INF > OF > UT (the scarcest defensive role wins); pitchers bucket by role (SP/RP). Used by the backtest's per-position accuracy table.
+_Avoid_: position group, category.

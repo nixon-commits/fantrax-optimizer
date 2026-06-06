@@ -185,7 +185,7 @@ func (c *Client) getPeriodSnapshotCached(
 	teamID string,
 	period int,
 ) (snap periodSnapshot, hitNetwork bool, err error) {
-	key := cache.Key("fantrax-roster-stats", teamID, strconv.Itoa(period))
+	key := cache.Key(keyRosterStats, teamID, strconv.Itoa(period))
 	snap, err = snapCache.Get(key, func() (periodSnapshot, error) {
 		hitNetwork = true
 		return c.fetchPeriodSnapshot(teamID, period)

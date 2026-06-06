@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nixon-commits/rosterbot/internal/cache"
+	"github.com/nixon-commits/rosterbot/internal/positions"
 	"github.com/nixon-commits/rosterbot/internal/scoring"
 	gofantrax "github.com/pmurley/go-fantrax"
 	"github.com/pmurley/go-fantrax/auth_client"
@@ -33,7 +34,7 @@ func (c *Client) GetPendingTrades() ([]PendingTrade, error) {
 		return c.fetchPendingTrades()
 	}
 	fc := cache.New[[]PendingTrade](c.cacheDir, c.todayTTL)
-	key := cache.Key("fantrax-pending-trades", c.leagueID)
+	key := cache.Key(keyPendingTrades, c.leagueID)
 	return fc.Get(key, func() ([]PendingTrade, error) {
 		return c.fetchPendingTrades()
 	})
@@ -129,7 +130,7 @@ func (c *Client) allTrades() ([]models.Transaction, error) {
 		return c.auth.GetAllTrades()
 	}
 	fc := cache.New[[]models.Transaction](c.cacheDir, c.todayTTL)
-	key := cache.Key("fantrax-all-trades", c.leagueID)
+	key := cache.Key(keyAllTrades, c.leagueID)
 	return fc.Get(key, func() ([]models.Transaction, error) {
 		return c.auth.GetAllTrades()
 	})
@@ -162,32 +163,23 @@ type Slot struct {
 // sites keep using fantrax.ScoringWeights unchanged.
 type ScoringWeights = scoring.Weights
 
-// posNameToID maps league position constraint keys to auth_client position ID strings.
+// posNameToID maps league position constraint keys to position ID strings.
 var posNameToID = map[string]string{
-	"C":   auth_client.PosC,  // "001"
-	"1B":  auth_client.Pos1B, // "002"
-	"2B":  "003",
-	"3B":  auth_client.Pos3B,   // "004"
-	"SS":  auth_client.PosSS,   // "005"
-	"INF": "008",               // infield utility
-	"OF":  auth_client.PosOF,   // "012"
-	"UT":  auth_client.PosUtil, // "014"
+	"C":   positions.C,
+	"1B":  positions.FirstBase,
+	"2B":  positions.SecondBase,
+	"3B":  positions.ThirdBase,
+	"SS":  positions.SS,
+	"INF": positions.INF,
+	"OF":  positions.OF,
+	"UT":  positions.UT,
 }
 
-// pitcherPosNameToID maps league pitcher slot names to auth_client position ID strings.
+// pitcherPosNameToID maps league pitcher slot names to position ID strings.
 var pitcherPosNameToID = map[string]string{
-	"SP": auth_client.PosSP, // "015"
-	"RP": auth_client.PosRP, // "016"
-	"P":  auth_client.PosP,  // "017"
-}
-
-// pitcherPosIDs are the Fantrax position IDs that indicate a pitcher slot.
-var pitcherPosIDs = map[string]bool{
-	auth_client.PosSP:  true, // "015"
-	auth_client.PosRP:  true, // "016"
-	auth_client.PosP:   true, // "017"
-	auth_client.PosRP2: true, // "043"
-	auth_client.PosRP3: true, // "044"
+	"SP": positions.SP,
+	"RP": positions.RP,
+	"P":  positions.P,
 }
 
 // Client wraps the go-fantrax libraries.
@@ -322,11 +314,11 @@ func (c *Client) InvalidatePeriodRosterCache(period int) {
 	fc := cache.New[[]Player](c.cacheDir, 0)
 	periodStr := strconv.Itoa(period)
 	// Period-specific keys (used by GetHitterRosterForPeriod for future dates).
-	fc.Invalidate(cache.Key("fantrax-hitter-roster", c.teamID, periodStr))
-	fc.Invalidate(cache.Key("fantrax-pitcher-roster", c.teamID, periodStr))
+	fc.Invalidate(cache.Key(keyHitterRoster, c.teamID, periodStr))
+	fc.Invalidate(cache.Key(keyPitcherRoster, c.teamID, periodStr))
 	// Current-day keys (used by GetHitterRoster / GetPitcherRoster for today).
-	fc.Invalidate(cache.Key("fantrax-hitter-roster", c.teamID))
-	fc.Invalidate(cache.Key("fantrax-pitcher-roster", c.teamID))
+	fc.Invalidate(cache.Key(keyHitterRoster, c.teamID))
+	fc.Invalidate(cache.Key(keyPitcherRoster, c.teamID))
 }
 
 // GetHitterRoster returns all hitters on the team (active + reserve; excludes IL/minors).
@@ -336,7 +328,7 @@ func (c *Client) GetHitterRoster() ([]Player, error) {
 		return c.fetchHitterRosterForPeriod(0)
 	}
 	fc := cache.New[[]Player](c.cacheDir, c.todayTTL)
-	key := cache.Key("fantrax-hitter-roster", c.teamID)
+	key := cache.Key(keyHitterRoster, c.teamID)
 	return fc.Get(key, func() ([]Player, error) {
 		return c.fetchHitterRosterForPeriod(0)
 	})
@@ -354,7 +346,7 @@ func (c *Client) GetHitterRosterForPeriod(period int) ([]Player, error) {
 		return c.fetchHitterRosterForPeriod(period)
 	}
 	fc := cache.New[[]Player](c.cacheDir, c.ttlForPeriod(period))
-	key := cache.Key("fantrax-hitter-roster", c.teamID, strconv.Itoa(period))
+	key := cache.Key(keyHitterRoster, c.teamID, strconv.Itoa(period))
 	return fc.Get(key, func() ([]Player, error) {
 		return c.fetchHitterRosterForPeriod(period)
 	})
@@ -429,7 +421,7 @@ func (c *Client) GetMinorsRoster() ([]Player, error) {
 		return c.fetchMinorsRoster()
 	}
 	fc := cache.New[[]Player](c.cacheDir, c.todayTTL)
-	key := cache.Key("fantrax-minors-roster", c.teamID)
+	key := cache.Key(keyMinorsRoster, c.teamID)
 	return fc.Get(key, func() ([]Player, error) {
 		return c.fetchMinorsRoster()
 	})
@@ -464,7 +456,7 @@ func (c *Client) GetAvailableProspects() ([]Player, error) {
 		return c.fetchAvailableProspects()
 	}
 	fc := cache.New[[]Player](c.cacheDir, c.todayTTL)
-	key := cache.Key("fantrax-available-prospects", c.leagueID)
+	key := cache.Key(keyAvailableProspects, c.leagueID)
 	return fc.Get(key, func() ([]Player, error) {
 		return c.fetchAvailableProspects()
 	})
@@ -509,7 +501,7 @@ func (c *Client) GetFullPlayerPool() ([]models.PoolPlayer, error) {
 		return c.fetchFullPlayerPool()
 	}
 	fc := cache.New[[]models.PoolPlayer](c.cacheDir, c.todayTTL)
-	key := cache.Key("fantrax-player-pool", c.leagueID)
+	key := cache.Key(keyPlayerPool, c.leagueID)
 	return fc.Get(key, func() ([]models.PoolPlayer, error) {
 		return c.fetchFullPlayerPool()
 	})
@@ -622,7 +614,7 @@ func (c *Client) GetActiveSlots() ([]Slot, error) {
 		return c.fetchActiveSlots()
 	}
 	fc := cache.New[[]Slot](c.cacheDir, c.stableTTL)
-	key := cache.Key("fantrax-hitter-slots", c.leagueID)
+	key := cache.Key(keyHitterSlots, c.leagueID)
 	return fc.Get(key, func() ([]Slot, error) {
 		return c.fetchActiveSlots()
 	})
@@ -661,7 +653,7 @@ func (c *Client) GetScoringWeights() (ScoringWeights, error) {
 		return c.fetchScoringWeights()
 	}
 	fc := cache.New[ScoringWeights](c.cacheDir, c.stableTTL)
-	key := cache.Key("fantrax-hitter-scoring", c.leagueID)
+	key := cache.Key(keyHitterScoring, c.leagueID)
 	return fc.Get(key, func() (ScoringWeights, error) {
 		return c.fetchScoringWeights()
 	})
@@ -725,7 +717,7 @@ type PlayerSlot struct {
 // isHitter returns true if the player has at least one non-pitcher eligible position.
 func isHitter(rp models.RosterPlayer) bool {
 	for _, pos := range rp.Positions {
-		if !pitcherPosIDs[pos] {
+		if !positions.IsPitcherSlot(pos) {
 			return true
 		}
 	}
@@ -773,14 +765,13 @@ func extractDate(dt string) string {
 // UT ("014") accepts all hitters.
 // INF ("008") accepts 1B, 2B, 3B, SS (not C).
 func EligibleForSlot(playerPositions []string, slot Slot) bool {
-	if slot.PosID == auth_client.PosUtil { // "014" - UT accepts anyone
+	if slot.PosID == positions.UT { // "014" - UT accepts anyone
 		return true
 	}
 	// INF accepts infield positions (not catcher).
-	if slot.PosID == "008" {
-		infPosIDs := map[string]bool{"002": true, "003": true, "004": true, "005": true}
+	if slot.PosID == positions.INF {
 		for _, pos := range playerPositions {
-			if infPosIDs[pos] {
+			if positions.AcceptsINF(pos) {
 				return true
 			}
 		}
@@ -801,7 +792,7 @@ func EligibleForSlot(playerPositions []string, slot Slot) bool {
 func EligibleForPitcherSlot(playerPositions []string, slot Slot) bool {
 	if slot.PosID == auth_client.PosP { // "017" - P accepts any pitcher
 		for _, pos := range playerPositions {
-			if pitcherPosIDs[pos] {
+			if positions.IsPitcherSlot(pos) {
 				return true
 			}
 		}
