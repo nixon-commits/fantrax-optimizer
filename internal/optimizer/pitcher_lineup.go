@@ -232,7 +232,7 @@ func scorePitcherRoster(
 		if !found {
 			proj, ok := projSrc.GetPitcherProjection(p.Name, p.MLBTeam)
 			if ok && proj.G > 0 {
-				pts = pitcherExpectedPts(proj, scoring)
+				pts = projections.PitcherExpectedPtsFromProj(proj, scoring)
 			}
 		}
 
@@ -244,43 +244,6 @@ func scorePitcherRoster(
 		})
 	}
 	return scored
-}
-
-// pitcherExpectedPts converts a season pitcher projection to expected fantasy points per game.
-func pitcherExpectedPts(proj *projections.PitcherProjection, scoring fantrax.ScoringWeights) float64 {
-	if proj.G <= 0 {
-		return 0
-	}
-
-	statMap := map[string]float64{
-		"K":   proj.K,
-		"BB":  proj.BBA,
-		"H":   proj.HA,
-		"ER":  proj.ER,
-		"HR":  proj.HRA,
-		"W":   proj.W,
-		"L":   proj.L,
-		"QS":  proj.QS,
-		"SV":  proj.SV,
-		"HLD": proj.HLD,
-		"BS":  proj.BS,
-		"IP":  proj.IP,
-		"HBP": proj.HBP,
-		"WP":  proj.WP,
-		"BK":  proj.BK,
-		"CG":  proj.CG,
-		"SHO": proj.SHO,
-		"PKO": proj.PKO,
-	}
-
-	var total float64
-	for stat, seasonVal := range statMap {
-		if pts, ok := scoring[stat]; ok {
-			perGame := seasonVal / proj.G
-			total += perGame * pts
-		}
-	}
-	return total
 }
 
 func isSPEligible(positions []string) bool {

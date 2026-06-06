@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nixon-commits/rosterbot/internal/cache"
+	"github.com/nixon-commits/rosterbot/internal/scoring"
 	gofantrax "github.com/pmurley/go-fantrax"
 	"github.com/pmurley/go-fantrax/auth_client"
 	"github.com/pmurley/go-fantrax/models"
@@ -156,8 +157,10 @@ type Slot struct {
 	PosName string
 }
 
-// ScoringWeights maps stat short-names to point values.
-type ScoringWeights map[string]float64
+// ScoringWeights maps stat short-names to point values. It is an alias for
+// scoring.Weights so the scoring package owns the type while existing call
+// sites keep using fantrax.ScoringWeights unchanged.
+type ScoringWeights = scoring.Weights
 
 // posNameToID maps league position constraint keys to auth_client position ID strings.
 var posNameToID = map[string]string{

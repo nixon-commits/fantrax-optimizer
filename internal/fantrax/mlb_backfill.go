@@ -11,6 +11,7 @@ import (
 
 	"github.com/nixon-commits/rosterbot/internal/cache"
 	"github.com/nixon-commits/rosterbot/internal/playername"
+	"github.com/nixon-commits/rosterbot/internal/scoring"
 )
 
 // mlbBackfillGameLogURL is the MLB statsapi gameLog endpoint, scoped to
@@ -314,78 +315,31 @@ func computeFPtsFromGameLog(log []mlbGameLogDay, date time.Time, isPitcher bool,
 	return total, hadGame
 }
 
-// hitterFPtsFromGame computes single-game fantasy points from a hitter
-// stat line × the league's hitter scoring weights. Mirrors the algebra in
-// projections.ExpectedPtsFromProj but without per-game normalization
-// (input is already a single game).
+// hitterFPtsFromGame computes single-game fantasy points from a hitter stat
+// line by adapting it to a scoring.HitterLine. No per-game division — the
+// input is already a single game.
 func hitterFPtsFromGame(g mlbGameLogDay, w ScoringWeights) float64 {
-	singles := g.H - g.Doubles - g.Triples - g.HR
-	if singles < 0 {
-		singles = 0
-	}
-	xbh := g.Doubles + g.Triples + g.HR
-	tb := singles + 2*g.Doubles + 3*g.Triples + 4*g.HR
-
-	statMap := map[string]float64{
-		"1B":   float64(singles),
-		"2B":   float64(g.Doubles),
-		"3B":   float64(g.Triples),
-		"HR":   float64(g.HR),
-		"R":    float64(g.R),
-		"RBI":  float64(g.RBI),
-		"BB":   float64(g.BB),
-		"SO":   float64(g.SO),
-		"SB":   float64(g.SB),
-		"CS":   float64(g.CS),
-		"HBP":  float64(g.HBP),
-		"GIDP": float64(g.GIDP),
-		"XBH":  float64(xbh),
-		"TB":   float64(tb),
-	}
-
-	var total float64
-	for stat, val := range statMap {
-		if pts, ok := w[stat]; ok {
-			total += val * pts
-		}
-	}
-	return total
+	return scoring.ApplyHitter(scoring.HitterLine{
+		H: float64(g.H), Doubles: float64(g.Doubles), Triples: float64(g.Triples),
+		HR: float64(g.HR), RBI: float64(g.RBI), R: float64(g.R),
+		BB: float64(g.BB), SB: float64(g.SB), CS: float64(g.CS),
+		HBP: float64(g.HBP), SO: float64(g.SO), GIDP: float64(g.GIDP),
+	}, w)
 }
 
-// pitcherFPtsFromGame computes single-game fantasy points from a pitcher
-// stat line × the league's pitcher scoring weights. QS is derived
-// (IP ≥ 6 AND ER ≤ 3). CG/SHO are not derived here — the MLB game log
-// flags them via a separate API endpoint that isn't worth pulling for
-// the rare events this backfill covers.
+// pitcherFPtsFromGame computes single-game fantasy points from a pitcher stat
+// line by adapting it to a scoring.PitcherLine. QS is derived here
+// (IP ≥ 6 AND ER ≤ 3). CG/SHO/PKO aren't tracked in the MLB game log, so they
+// are left zero — the rare events aren't worth a separate API call.
 func pitcherFPtsFromGame(g mlbGameLogDay, w ScoringWeights) float64 {
-	qs := 0
+	var qs float64
 	if g.IP >= 6 && g.ER <= 3 {
 		qs = 1
 	}
-
-	statMap := map[string]float64{
-		"IP":  g.IP,
-		"K":   float64(g.K),
-		"BB":  float64(g.BBA),
-		"H":   float64(g.HA),
-		"ER":  float64(g.ER),
-		"HR":  float64(g.HRA),
-		"W":   float64(g.W),
-		"L":   float64(g.L),
-		"SV":  float64(g.SV),
-		"HLD": float64(g.HLD),
-		"BS":  float64(g.BS),
-		"QS":  float64(qs),
-		"HBP": float64(g.PHBP),
-		"WP":  float64(g.WP),
-		"BK":  float64(g.BK),
-	}
-
-	var total float64
-	for stat, val := range statMap {
-		if pts, ok := w[stat]; ok {
-			total += val * pts
-		}
-	}
-	return total
+	return scoring.ApplyPitcher(scoring.PitcherLine{
+		IP: g.IP, K: float64(g.K), BB: float64(g.BBA), H: float64(g.HA),
+		ER: float64(g.ER), HR: float64(g.HRA), W: float64(g.W), L: float64(g.L),
+		QS: qs, SV: float64(g.SV), HLD: float64(g.HLD), BS: float64(g.BS),
+		HBP: float64(g.PHBP), WP: float64(g.WP), BK: float64(g.BK),
+	}, w)
 }

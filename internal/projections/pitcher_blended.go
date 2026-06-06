@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	scoringpkg "github.com/nixon-commits/rosterbot/internal/scoring"
 	"github.com/pmurley/go-fantrax/auth_client"
 )
 
@@ -159,39 +160,20 @@ func (b *PitcherBlendedSource) GetPitcherBreakdown(name, mlbTeam string, scoring
 	return bd
 }
 
-// PitcherExpectedPtsFromProj computes per-game fantasy points from a pitcher projection.
+// PitcherExpectedPtsFromProj computes per-game fantasy points from a pitcher
+// projection by adapting it to a scoring.PitcherLine and dividing the season
+// total by games. QS is taken directly from the projection (FanGraphs supplies
+// it).
 func PitcherExpectedPtsFromProj(proj *PitcherProjection, scoring fantrax.ScoringWeights) float64 {
 	if proj.G <= 0 {
 		return 0
 	}
-
-	statMap := map[string]float64{
-		"K":   proj.K,
-		"BB":  proj.BBA,
-		"H":   proj.HA,
-		"ER":  proj.ER,
-		"HR":  proj.HRA,
-		"W":   proj.W,
-		"L":   proj.L,
-		"QS":  proj.QS,
-		"SV":  proj.SV,
-		"HLD": proj.HLD,
-		"BS":  proj.BS,
-		"IP":  proj.IP,
-		"HBP": proj.HBP,
-		"WP":  proj.WP,
-		"BK":  proj.BK,
-		"CG":  proj.CG,
-		"SHO": proj.SHO,
-		"PKO": proj.PKO,
+	line := scoringpkg.PitcherLine{
+		IP: proj.IP, K: proj.K, BB: proj.BBA, H: proj.HA,
+		ER: proj.ER, HR: proj.HRA, W: proj.W, L: proj.L,
+		QS: proj.QS, SV: proj.SV, HLD: proj.HLD, BS: proj.BS,
+		HBP: proj.HBP, WP: proj.WP, BK: proj.BK,
+		CG: proj.CG, SHO: proj.SHO, PKO: proj.PKO,
 	}
-
-	var total float64
-	for stat, seasonVal := range statMap {
-		if pts, ok := scoring[stat]; ok {
-			perGame := seasonVal / proj.G
-			total += perGame * pts
-		}
-	}
-	return total
+	return scoringpkg.ApplyPitcher(line, scoring) / proj.G
 }

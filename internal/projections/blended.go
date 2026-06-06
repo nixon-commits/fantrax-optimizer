@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	scoringpkg "github.com/nixon-commits/rosterbot/internal/scoring"
 )
 
 const (
@@ -130,32 +131,18 @@ func (b *BlendedSource) GetHitterBreakdown(name, mlbTeam string, scoring fantrax
 	return bd
 }
 
-// ExpectedPtsFromProj computes per-game fantasy points from a projection.
-// This is the canonical implementation; optimizer.expectedPts delegates here.
+// ExpectedPtsFromProj computes per-game fantasy points from a projection by
+// adapting it to a scoring.HitterLine and dividing the season total by games.
+// 1B/XBH/TB are derived inside scoring.ApplyHitter (1B from H, not the
+// FanGraphs-supplied Singles — the two are equal by construction).
 func ExpectedPtsFromProj(proj *Projection, scoring fantrax.ScoringWeights) float64 {
 	if proj.G <= 0 {
 		return 0
 	}
-	singles := proj.Singles
-	if singles == 0 && proj.H > 0 {
-		singles = proj.H - proj.Doubles - proj.Triples - proj.HR
+	line := scoringpkg.HitterLine{
+		H: proj.H, Doubles: proj.Doubles, Triples: proj.Triples, HR: proj.HR,
+		RBI: proj.RBI, R: proj.R, BB: proj.BB, SB: proj.SB, CS: proj.CS,
+		HBP: proj.HBP, SO: proj.SO, GIDP: proj.GIDP,
 	}
-	xbh := proj.Doubles + proj.Triples + proj.HR
-	tb := singles + 2*proj.Doubles + 3*proj.Triples + 4*proj.HR
-
-	statMap := map[string]float64{
-		"1B": singles, "2B": proj.Doubles, "3B": proj.Triples,
-		"HR": proj.HR, "RBI": proj.RBI, "R": proj.R,
-		"BB": proj.BB, "SB": proj.SB, "CS": proj.CS,
-		"HBP": proj.HBP, "SO": proj.SO, "GIDP": proj.GIDP,
-		"XBH": xbh, "TB": tb,
-	}
-
-	var total float64
-	for stat, seasonVal := range statMap {
-		if pts, ok := scoring[stat]; ok {
-			total += (seasonVal / proj.G) * pts
-		}
-	}
-	return total
+	return scoringpkg.ApplyHitter(line, scoring) / proj.G
 }
