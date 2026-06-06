@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/projections"
 )
 
 func d(s string) time.Time { t, _ := time.Parse("2006-01-02", s); return t }
@@ -28,5 +29,57 @@ func TestBuildHitterSeries_GroupsByPlayerAndDropsPitchers(t *testing.T) {
 	}
 	if got["h1"][1].FP != 7 || !got["h1"][1].Played {
 		t.Fatalf("h1 day2 = %+v, want FP 7 played", got["h1"][1])
+	}
+}
+
+// stubPtsSource returns a fixed pts/game per player name via the PtsPerGameSource path.
+type stubPtsSource struct{ pts map[string]float64 }
+
+func (s stubPtsSource) GetProjection(name, _ string) (*projections.Projection, bool) {
+	return &projections.Projection{G: 1}, true
+}
+func (s stubPtsSource) GetPtsPerGame(name, _ string, _ fantrax.ScoringWeights) (float64, bool) {
+	v, ok := s.pts[name]
+	return v, ok
+}
+
+func TestRunStrategyComparison_ScoresChosenLineupByActuals(t *testing.T) {
+	// One UT slot, two hitters with a game. Variant "likesA" projects A higher,
+	// "likesB" projects B higher. Actuals: A scored 2, B scored 8.
+	day := fantrax.DayRoster{
+		Date: d("2026-05-10"),
+		Players: []fantrax.DayPlayerFP{
+			{PlayerID: "a", Name: "A", MLBTeam: "NYY", FPts: 2, HadGame: true, StatusID: "1", Positions: []string{"014"}},
+			{PlayerID: "b", Name: "B", MLBTeam: "NYY", FPts: 8, HadGame: true, StatusID: "1", Positions: []string{"014"}},
+		},
+	}
+	slots := []fantrax.Slot{{PosID: "014"}} // one UT slot
+
+	variants := []StrategyVariant{
+		{Name: "likesA", Build: func(time.Time) (projections.Source, error) {
+			return stubPtsSource{pts: map[string]float64{"A": 99, "B": 1}}, nil
+		}},
+		{Name: "likesB", Build: func(time.Time) (projections.Source, error) {
+			return stubPtsSource{pts: map[string]float64{"A": 1, "B": 99}}, nil
+		}},
+	}
+
+	got, err := RunStrategyComparison(variants, []fantrax.DayRoster{day}, slots, fantrax.ScoringWeights{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]VariantResult{}
+	for _, r := range got {
+		byName[r.Name] = r
+	}
+	if byName["likesA"].RealizedPts != 2 {
+		t.Fatalf("likesA realized = %v, want 2 (it started A)", byName["likesA"].RealizedPts)
+	}
+	if byName["likesB"].RealizedPts != 8 {
+		t.Fatalf("likesB realized = %v, want 8 (it started B)", byName["likesB"].RealizedPts)
+	}
+	// Hindsight-optimal is 8 (start B), so likesA's Gap is 2-8 = -6.
+	if byName["likesA"].MeanGap != -6 {
+		t.Fatalf("likesA gap = %v, want -6", byName["likesA"].MeanGap)
 	}
 }
