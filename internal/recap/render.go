@@ -43,6 +43,55 @@ var funcMap = template.FuncMap{
 	"standingsPoints":   standingsPoints,
 	"woba":              fmtWOBA,
 	"fip":               fmtFIP,
+	"mlbLogo":           mlbTeamLogo,
+}
+
+// mlbTeamAbbrevToID maps an MLB club abbreviation to its statsapi team ID.
+// Both the codebase-canonical form (CHW, ATH, ARI, …) and common upstream
+// variants (CWS, OAK, AZ, …) are included so a logo resolves regardless of
+// which abbreviation Fantrax emits.
+var mlbTeamAbbrevToID = map[string]int{
+	"LAA": 108,
+	"ARI": 109, "AZ": 109,
+	"BAL": 110,
+	"BOS": 111,
+	"CHC": 112,
+	"CIN": 113,
+	"CLE": 114,
+	"COL": 115,
+	"DET": 116,
+	"HOU": 117,
+	"KC":  118, "KCR": 118,
+	"LAD": 119,
+	"WSH": 120, "WSN": 120, "WAS": 120,
+	"NYM": 121,
+	"ATH": 133, "OAK": 133,
+	"PIT": 134,
+	"SD":  135, "SDP": 135,
+	"SEA": 136,
+	"SF":  137, "SFG": 137,
+	"STL": 138,
+	"TB":  139, "TBR": 139,
+	"TEX": 140,
+	"TOR": 141,
+	"MIN": 142,
+	"PHI": 143,
+	"ATL": 144,
+	"CHW": 145, "CWS": 145,
+	"MIA": 146,
+	"NYY": 147,
+	"MIL": 158,
+}
+
+// mlbTeamLogo returns a PNG logo URL for an MLB club abbreviation via the
+// mlbstatic "spots" endpoint (96px), or "" when the abbreviation is unknown
+// (template falls back to a text chip).
+func mlbTeamLogo(abbrev string) string {
+	id, ok := mlbTeamAbbrevToID[strings.ToUpper(strings.TrimSpace(abbrev))]
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("https://midfield.mlbstatic.com/v1/team/%d/spots/96", id)
 }
 
 // fmtWOBA formats a wOBA value in baseball convention: three decimals with no

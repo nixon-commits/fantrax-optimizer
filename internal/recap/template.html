@@ -545,7 +545,6 @@
     {{- range $i, $t := .Teams}}
     {{- $sLogo := teamLogo $.LogoURLs $t.TeamID}}
     <div class="row">
-      <div class="rank">{{add $i 1}}</div>
       <div class="body">
         <div class="name">
           {{- if $sLogo}}<img class="team-avatar" src="{{$sLogo}}" alt=""/>
@@ -565,8 +564,10 @@
       <span class="expand-hint"><span class="chevron">▸</span> expand</span>
     </summary>
     {{- range $i, $s := .Season.Shellings}}
+    {{- $mLogo := mlbLogo $s.MLBTeam}}
     <div class="shelling-row">
-      <div class="rank">{{add $i 1}}</div>
+      {{- if $mLogo}}<img class="team-avatar" src="{{$mLogo}}" alt="{{$s.MLBTeam}}" title="{{$s.MLBTeam}}"/>
+      {{- else}}<span class="team-avatar fallback" style="background:{{teamColor $s.MLBTeam}}" title="{{$s.MLBTeam}}">{{$s.MLBTeam}}</span>{{end}}
       <div class="body">
         <div class="name">{{$s.Name}}</div>
         <div class="meta">Wk {{$s.WeekNumber}} · {{$s.OwnerTeam}}{{if $s.Opponent}} · vs {{$s.Opponent}}{{end}}</div>

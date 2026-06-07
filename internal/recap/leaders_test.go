@@ -141,6 +141,49 @@ func TestRenderLeadersSection(t *testing.T) {
 	}
 }
 
+func TestMLBTeamLogo(t *testing.T) {
+	cases := map[string]string{
+		"SEA": "https://midfield.mlbstatic.com/v1/team/136/spots/96",
+		"sea": "https://midfield.mlbstatic.com/v1/team/136/spots/96",
+		"CWS": "https://midfield.mlbstatic.com/v1/team/145/spots/96", // variant of CHW
+		"OAK": "https://midfield.mlbstatic.com/v1/team/133/spots/96", // variant of ATH
+		"ZZZ": "",
+		"":    "",
+	}
+	for in, want := range cases {
+		if got := mlbTeamLogo(in); got != want {
+			t.Errorf("mlbTeamLogo(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRenderSeasonRankRemovedAndShellingLogo(t *testing.T) {
+	r := sampleRecap()
+	season := &SeasonAwards{
+		ThroughWeek: 9,
+		Categories: []SeasonAwardCategory{{
+			AwardName: AwardHighestScore,
+			Teams:     []SeasonAwardTeam{{TeamID: "t1", TeamName: "jimmydyl", Count: 3}},
+		}},
+		Shellings: []PitcherStartLine{{
+			Name: "Garrett Crochet", MLBTeam: "SEA", OwnerTeam: "DillonP33", WeekNumber: 3, FPts: -8,
+		}},
+	}
+	var buf bytes.Buffer
+	if err := RenderSite(&buf, r, nil, season); err != nil {
+		t.Fatal(err)
+	}
+	html := buf.String()
+	// Shelling uses the MLB team logo.
+	if !strings.Contains(html, "https://midfield.mlbstatic.com/v1/team/136/spots/96") {
+		t.Error("shelling row missing MLB team logo")
+	}
+	// League-award category rows no longer carry a numbered rank chip.
+	if strings.Contains(html, `<div class="rank">1</div>`) {
+		t.Error("league award category still renders a rank number")
+	}
+}
+
 func TestFetchSeasonPitching(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"people":[
