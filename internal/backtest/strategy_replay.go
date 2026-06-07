@@ -106,22 +106,14 @@ func RunStrategyComparison(
 }
 
 // chosenHitterIDs returns the set of player IDs the optimizer placed in active
-// slots (mirrors the in-lineup predicate used by hitterOptimalPts).
+// slots (shares the isInLineup predicate with hitterOptimalPts). No HasGame
+// gate here: a no-game player the optimizer slotted contributes 0 actual FPts
+// to realized, so including them is harmless and keeps the set's meaning honest.
 func chosenHitterIDs(r optimizer.Result) map[string]bool {
-	benched := make(map[string]bool, len(r.ToBench))
-	for _, id := range r.ToBench {
-		benched[id] = true
-	}
-	activated := make(map[string]bool, len(r.ToActivate))
-	for _, ps := range r.ToActivate {
-		activated[ps.PlayerID] = true
-	}
+	benched, activated := lineupSets(r.ToBench, r.ToActivate)
 	chosen := make(map[string]bool)
 	for _, sp := range r.Scored {
-		// "In the active lineup" only — no HasGame gate here: a no-game player the
-		// optimizer slotted contributes 0 actual FPts to realized, so including
-		// them is harmless and keeps the set's meaning honest.
-		if (sp.Player.Status == "Active" && !benched[sp.Player.ID]) || activated[sp.Player.ID] {
+		if isInLineup(sp.Player, benched, activated) {
 			chosen[sp.Player.ID] = true
 		}
 	}
