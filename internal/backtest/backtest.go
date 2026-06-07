@@ -201,22 +201,30 @@ func optimizePitchers(players []fantrax.DayPlayerFP, slots []fantrax.Slot) optim
 // players in the optimizer's chosen active lineup. The optimal lineup is
 // derived from the Result: currently-active players not in ToBench plus any
 // players in ToActivate.
-func hitterOptimalPts(r optimizer.Result) float64 {
-	benched := make(map[string]bool, len(r.ToBench))
-	for _, id := range r.ToBench {
+// lineupSets builds the benched + activated ID sets from an optimizer result's moves.
+func lineupSets(toBench []string, toActivate []fantrax.PlayerSlot) (benched, activated map[string]bool) {
+	benched = make(map[string]bool, len(toBench))
+	for _, id := range toBench {
 		benched[id] = true
 	}
-	activated := make(map[string]bool, len(r.ToActivate))
-	for _, ps := range r.ToActivate {
+	activated = make(map[string]bool, len(toActivate))
+	for _, ps := range toActivate {
 		activated[ps.PlayerID] = true
 	}
+	return
+}
+
+// isInLineup reports whether p is in the optimizer's chosen active lineup:
+// an active player not benched, or a reserve the optimizer activated.
+func isInLineup(p fantrax.Player, benched, activated map[string]bool) bool {
+	return (p.Status == "Active" && !benched[p.ID]) || activated[p.ID]
+}
+
+func hitterOptimalPts(r optimizer.Result) float64 {
+	benched, activated := lineupSets(r.ToBench, r.ToActivate)
 	var total float64
 	for _, sp := range r.Scored {
-		inOptimal := (sp.Player.Status == "Active" && !benched[sp.Player.ID]) || activated[sp.Player.ID]
-		if !inOptimal {
-			continue
-		}
-		if !sp.HasGame {
+		if !isInLineup(sp.Player, benched, activated) || !sp.HasGame {
 			continue
 		}
 		total += sp.ExpectedPts
@@ -230,21 +238,10 @@ func hitterOptimalPts(r optimizer.Result) float64 {
 // apply it to any residual SP-eligible pitchers placed in active slots without
 // IsStarter set (e.g. an SP whose team played but who didn't actually pitch).
 func pitcherOptimalPts(r optimizer.PitcherResult) float64 {
-	benched := make(map[string]bool, len(r.ToBench))
-	for _, id := range r.ToBench {
-		benched[id] = true
-	}
-	activated := make(map[string]bool, len(r.ToActivate))
-	for _, ps := range r.ToActivate {
-		activated[ps.PlayerID] = true
-	}
+	benched, activated := lineupSets(r.ToBench, r.ToActivate)
 	var total float64
 	for _, sp := range r.Scored {
-		inOptimal := (sp.Player.Status == "Active" && !benched[sp.Player.ID]) || activated[sp.Player.ID]
-		if !inOptimal {
-			continue
-		}
-		if !sp.HasGame {
+		if !isInLineup(sp.Player, benched, activated) || !sp.HasGame {
 			continue
 		}
 		isRP := !strings.Contains(sp.Player.PosShortNames, "SP")
