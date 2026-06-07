@@ -182,6 +182,8 @@ When adding new commands, flags, env vars, or changing architecture, update `REA
 
 `.github/workflows/recap.yml` runs Mondays at 11am UTC (7am ET) and on `workflow_dispatch`. Calls `recap-site --out dist` to build the full site (every completed week + index.html), uploads `dist/` via `actions/upload-pages-artifact@v3`, and deploys with `actions/deploy-pages@v4`. No HTML is committed back to the repo. Needs `permissions: pages: write, id-token: write` and the repo's Pages source set to "GitHub Actions" (Settings → Pages → Source). The Pushover notification uses `steps.deployment.outputs.page_url` so the link always points at the live site root.
 
+`.github/workflows/backtest.yml` runs Mondays at 12pm UTC (after `recap.yml`) and on `workflow_dispatch` (with an optional `dates` input). Runs `backtest` (lineup + projection grading of the just-completed week) then `backtest --recency-experiment` (hitter recency-strategy comparison). Restores the shared `projections-` cache (`.cache` + `.backtest/snapshots`) so projection grading has snapshot data — **that data only exists in the GHA cache** (written by the hourly `lineup.yml`), so the backtest must run in CI to grade it. Read-only; results land in the job log, no Pushover.
+
 ## Agent skills
 
 ### Issue tracker
