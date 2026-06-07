@@ -8,17 +8,19 @@ import (
 
 	"github.com/nixon-commits/rosterbot/internal/backtest"
 	"github.com/nixon-commits/rosterbot/internal/fantrax"
+	"github.com/nixon-commits/rosterbot/internal/projections"
 	"github.com/spf13/cobra"
 )
 
 const backtestSnapshotDir = ".backtest/snapshots"
 
 var (
-	backtestDates           string
-	backtestWeeks           int
-	backtestMatchup         bool
-	backtestSkipProjections bool
-	backtestJSON            bool
+	backtestDates             string
+	backtestWeeks             int
+	backtestMatchup           bool
+	backtestSkipProjections   bool
+	backtestJSON              bool
+	backtestRecencyExperiment bool
 )
 
 var backtestCmd = &cobra.Command{
@@ -33,6 +35,7 @@ func init() {
 	backtestCmd.Flags().BoolVar(&backtestMatchup, "matchup", false, "backtest the most recently completed matchup week")
 	backtestCmd.Flags().BoolVar(&backtestSkipProjections, "skip-projections", false, "skip the projection-accuracy analysis (faster)")
 	backtestCmd.Flags().BoolVar(&backtestJSON, "json", false, "emit machine-readable JSON instead of a human report")
+	backtestCmd.Flags().BoolVar(&backtestRecencyExperiment, "recency-experiment", false, "compare YTD vs 14d/30d/decay recency strategies by lineup Gap (hitters only)")
 	rootCmd.AddCommand(backtestCmd)
 }
 
@@ -79,6 +82,14 @@ func runBacktest(cmd *cobra.Command, args []string) error {
 	}
 	if err := ft.BackfillDailyFPts(days); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: MLB backfill: %v\n", err)
+	}
+
+	if backtestRecencyExperiment {
+		hitterScoring, err := ft.GetScoringWeights()
+		if err != nil {
+			return fmt.Errorf("get scoring weights: %w", err)
+		}
+		return runRecencyExperiment(ft, days, hitterSlots, hitterScoring, cfg.BlendMinGP)
 	}
 
 	lineup := backtest.RunLineupAnalysis(days, hitterSlots, pitcherSlots)
@@ -174,4 +185,72 @@ func resolveBacktestRange(ft *fantrax.Client, today time.Time) (time.Time, time.
 		}
 	}
 	return ws, we, nil
+}
+
+// runRecencyExperiment compares recency-weighting strategies (YTD vs 14d/30d/decay)
+// by replaying the hitter optimizer over the backtest window under each strategy
+// and reporting realized points, mean Gap to hindsight-optimal, and projection
+// MAE/Bias. The FanGraphs base projection is shared across variants (identical
+// across modes, so it's a fair isolation of the recency effect); only the recency
+// blend differs. Production lineups are unaffected — this is backtest-only.
+func runRecencyExperiment(
+	ft *fantrax.Client,
+	days []fantrax.DayRoster,
+	hitterSlots []fantrax.Slot,
+	hitterScoring fantrax.ScoringWeights,
+	blendMinGP int,
+) error {
+	// Base hitter projection source (depthcharts-ros), shared across all variants.
+	// Mirrors cmd/optimize.go base-source construction.
+	projTTL := cacheTTL(24 * time.Hour)
+	fgSrc, _, err := projections.LoadBattingProjections("depthcharts-ros", cacheDir, projTTL)
+	if err != nil {
+		return fmt.Errorf("load base projections: %w", err)
+	}
+	rolling := projections.NewRollingSource()
+	baseSrc := projections.NewChainedSource(fgSrc, rolling)
+
+	// Roster name→ID map for the blend (hitters only).
+	hitterRoster, err := ft.GetHitterRoster()
+	if err != nil {
+		return fmt.Errorf("hitter roster: %w", err)
+	}
+	nameToID := make(map[string]string)
+	for _, p := range hitterRoster {
+		nameToID[projections.NormalizeName(p.Name)] = p.ID
+	}
+
+	series := backtest.BuildHitterSeries(days)
+
+	mkVariant := func(name string, w projections.WeightFunc) backtest.StrategyVariant {
+		return backtest.StrategyVariant{
+			Name: name,
+			Build: func(asOf time.Time) (projections.Source, error) {
+				recent := make(map[string]fantrax.RecentStat, len(series))
+				for id, s := range series {
+					recent[id] = projections.WeightedRecent(s, asOf, w)
+				}
+				return projections.NewBlendedSource(baseSrc, recent, hitterScoring, nameToID, blendMinGP), nil
+			},
+		}
+	}
+
+	variants := []backtest.StrategyVariant{
+		mkVariant("ytd", projections.YTDWeight),
+		mkVariant("w14", projections.WindowWeight(14)),
+		mkVariant("w30", projections.WindowWeight(30)),
+		mkVariant("decay21", projections.DecayWeight(21)),
+	}
+
+	results, err := backtest.RunStrategyComparison(variants, days, hitterSlots, hitterScoring)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("\nRecency strategy comparison (hitters, %d days)\n", len(days))
+	fmt.Printf("%-10s %12s %10s %8s %8s\n", "mode", "realized", "mean gap", "MAE", "bias")
+	for _, r := range results {
+		fmt.Printf("%-10s %12.1f %10.2f %8.2f %8.2f\n", r.Name, r.RealizedPts, r.MeanGap, r.MAE, r.Bias)
+	}
+	return nil
 }

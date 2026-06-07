@@ -86,6 +86,9 @@ rosterbot backtest
 # Backtest a specific window
 rosterbot backtest --dates 2026-04-13:2026-04-19
 
+# Compare recency-weighting strategies (YTD vs 14d/30d/decay) by lineup Gap (hitters)
+rosterbot backtest --recency-experiment --dates 2026-05-01:2026-05-14
+
 # Archive today's projections so a future backtest can grade them exactly
 rosterbot optimize --dry-run --archive-projections
 
