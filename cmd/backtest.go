@@ -89,7 +89,20 @@ func runBacktest(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("get scoring weights: %w", err)
 		}
-		return runRecencyExperiment(ft, days, hitterSlots, hitterScoring, cfg.BlendMinGP)
+		// The recency series needs ~30 days of history before the grading window,
+		// or the trailing windows have nothing to differentiate on.
+		seriesStart := start.AddDate(0, 0, -35)
+		if seriesStart.Before(seasonStart) {
+			seriesStart = seasonStart
+		}
+		seriesDays, err := ft.DailyFantasyPoints(cfg.TeamID, seriesStart, end, seasonStart, cacheDir, snapTTL)
+		if err != nil {
+			return fmt.Errorf("recency series fetch: %w", err)
+		}
+		if err := ft.BackfillDailyFPts(seriesDays); err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: recency series backfill: %v\n", err)
+		}
+		return runRecencyExperiment(ft, days, seriesDays, hitterSlots, hitterScoring, cfg.BlendMinGP)
 	}
 
 	lineup := backtest.RunLineupAnalysis(days, hitterSlots, pitcherSlots)
@@ -193,9 +206,14 @@ func resolveBacktestRange(ft *fantrax.Client, today time.Time) (time.Time, time.
 // MAE/Bias. The FanGraphs base projection is shared across variants (identical
 // across modes, so it's a fair isolation of the recency effect); only the recency
 // blend differs. Production lineups are unaffected — this is backtest-only.
+// runRecencyExperiment replays over gradeDays (the grading window) but builds the
+// recency signal from seriesDays, an extended range reaching back before the
+// window — the trailing-window strategies need history predating the days being
+// graded, or every window collapses to the same in-window games.
 func runRecencyExperiment(
 	ft *fantrax.Client,
-	days []fantrax.DayRoster,
+	gradeDays []fantrax.DayRoster,
+	seriesDays []fantrax.DayRoster,
 	hitterSlots []fantrax.Slot,
 	hitterScoring fantrax.ScoringWeights,
 	blendMinGP int,
@@ -220,7 +238,7 @@ func runRecencyExperiment(
 		nameToID[projections.NormalizeName(p.Name)] = p.ID
 	}
 
-	series := backtest.BuildHitterSeries(days)
+	series := backtest.BuildHitterSeries(seriesDays)
 
 	mkVariant := func(name string, w projections.WeightFunc) backtest.StrategyVariant {
 		return backtest.StrategyVariant{
@@ -242,12 +260,12 @@ func runRecencyExperiment(
 		mkVariant("decay21", projections.DecayWeight(21)),
 	}
 
-	results, err := backtest.RunStrategyComparison(variants, days, hitterSlots, hitterScoring)
+	results, err := backtest.RunStrategyComparison(variants, gradeDays, hitterSlots, hitterScoring)
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("\nRecency strategy comparison (hitters, %d days)\n", len(days))
+	fmt.Printf("\nRecency strategy comparison (hitters, %d days)\n", len(gradeDays))
 	fmt.Printf("%-10s %12s %10s %8s %8s\n", "mode", "realized", "mean gap", "MAE", "bias")
 	for _, r := range results {
 		fmt.Printf("%-10s %12.1f %10.2f %8.2f %8.2f\n", r.Name, r.RealizedPts, r.MeanGap, r.MAE, r.Bias)
