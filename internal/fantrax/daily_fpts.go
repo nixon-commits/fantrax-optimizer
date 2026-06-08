@@ -77,7 +77,21 @@ func (c *Client) DailyFantasyPoints(
 		return nil, fmt.Errorf("end %s before start %s", end.Format("2006-01-02"), start.Format("2006-01-02"))
 	}
 
-	snapCache := cache.New[periodSnapshot](cacheDir, cacheTTL)
+	// snapCacheFor builds a per-period cache so the long, immutable-period TTL
+	// the caller passes (30d for recap/backtest) is never applied to the live
+	// current/future period. Without this, a current-period snapshot cached
+	// before the day's games (e.g. an early hourly run) is served stale for the
+	// rest of the day, zeroing that day's deltas — which made a Sunday-night
+	// recap render scores short by exactly today's points and drop the WP
+	// curves (see cappedTTL). cacheTTL==0 (--no-cache / hermetic tests) keeps
+	// caching off and avoids the network call inside ttlForPeriod.
+	snapCacheFor := func(period int) *cache.FileCache[periodSnapshot] {
+		ttl := cacheTTL
+		if cacheTTL > 0 {
+			ttl = cappedTTL(cacheTTL, c.ttlForPeriod(period))
+		}
+		return cache.New[periodSnapshot](cacheDir, ttl)
+	}
 
 	// Baseline YTD from the day before `start` so the first day in range
 	// yields a single-day delta.
@@ -87,7 +101,7 @@ func (c *Client) DailyFantasyPoints(
 	if !dayBefore.Before(seasonStart) {
 		basePeriod := PeriodForDate(seasonStart, dayBefore)
 		if basePeriod >= 1 {
-			base, _, err := c.getPeriodSnapshotCached(snapCache, teamID, basePeriod)
+			base, _, err := c.getPeriodSnapshotCached(snapCacheFor(basePeriod), teamID, basePeriod)
 			if err != nil {
 				return nil, fmt.Errorf("baseline snapshot period %d: %w", basePeriod, err)
 			}
@@ -99,7 +113,7 @@ func (c *Client) DailyFantasyPoints(
 	var days []DayRoster
 	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
 		period := PeriodForDate(seasonStart, d)
-		snap, hitNetwork, err := c.getPeriodSnapshotCached(snapCache, teamID, period)
+		snap, hitNetwork, err := c.getPeriodSnapshotCached(snapCacheFor(period), teamID, period)
 		if err != nil {
 			return nil, fmt.Errorf("snapshot %s (period %d): %w", d.Format("2006-01-02"), period, err)
 		}
@@ -175,6 +189,21 @@ func diffYTD(cur, prevSame, prevOther map[string]playerYTD, isPitcher bool) []Da
 		})
 	}
 	return out
+}
+
+// cappedTTL picks the cache TTL for one period's snapshot: the caller's TTL
+// capped to the period's own TTL. A zero callerTTL means caching is disabled
+// and is returned as-is. Capping ensures the live current/future period is
+// never cached longer than todayTTL even when the caller asks for the long
+// immutable-past-period TTL.
+func cappedTTL(callerTTL, periodTTL time.Duration) time.Duration {
+	if callerTTL == 0 {
+		return 0
+	}
+	if periodTTL < callerTTL {
+		return periodTTL
+	}
+	return callerTTL
 }
 
 // getPeriodSnapshotCached fetches a single period's YTD snapshot via the cache.

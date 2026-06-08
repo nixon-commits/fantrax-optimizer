@@ -2,9 +2,38 @@ package fantrax
 
 import (
 	"testing"
+	"time"
 
 	"github.com/pmurley/go-fantrax/models"
 )
+
+func TestCappedTTL(t *testing.T) {
+	day := 24 * time.Hour
+	cases := []struct {
+		name      string
+		callerTTL time.Duration
+		periodTTL time.Duration
+		want      time.Duration
+	}{
+		// Caching disabled (e.g. --no-cache / hermetic tests) is preserved.
+		{"caller zero bypasses", 0, 15 * time.Minute, 0},
+		// The recap case: a long immutable-period TTL must NOT be applied to
+		// the live current period (todayTTL), or a snapshot cached pre-games
+		// is served stale all day. This is the bug being fixed.
+		{"long caller capped to live period", 30 * day, 15 * time.Minute, 15 * time.Minute},
+		// Past period: caller's long TTL is honored (snapshot is immutable).
+		{"past period keeps long caller", 30 * day, 30 * day, 30 * day},
+		// A caller asking for a shorter TTL than the period's is respected.
+		{"shorter caller wins", time.Hour, 30 * day, time.Hour},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := cappedTTL(c.callerTTL, c.periodTTL); got != c.want {
+				t.Errorf("cappedTTL(%v, %v) = %v, want %v", c.callerTTL, c.periodTTL, got, c.want)
+			}
+		})
+	}
+}
 
 func TestPlayerStatsFromTables_BothGroups(t *testing.T) {
 	tables := []models.RosterTable{
