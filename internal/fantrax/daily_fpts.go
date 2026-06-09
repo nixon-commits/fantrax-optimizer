@@ -84,11 +84,17 @@ func (c *Client) DailyFantasyPoints(
 	// rest of the day, zeroing that day's deltas — which made a Sunday-night
 	// recap render scores short by exactly today's points and drop the WP
 	// curves (see cappedTTL). cacheTTL==0 (--no-cache / hermetic tests) keeps
-	// caching off and avoids the network call inside ttlForPeriod.
+	// caching off.
+	//
+	// The current-period boundary is computed once from seasonStart (already in
+	// scope) rather than via c.ttlForPeriod, which fetches the season range on
+	// every call — calling it per period here added ~one network round-trip per
+	// period × team × week (a ~10x slowdown on a full site build).
+	curPeriod := PeriodForDate(seasonStart, time.Now().UTC())
 	snapCacheFor := func(period int) *cache.FileCache[periodSnapshot] {
 		ttl := cacheTTL
-		if cacheTTL > 0 {
-			ttl = cappedTTL(cacheTTL, c.ttlForPeriod(period))
+		if cacheTTL > 0 && period >= curPeriod {
+			ttl = cappedTTL(cacheTTL, c.todayTTL)
 		}
 		return cache.New[periodSnapshot](cacheDir, ttl)
 	}
